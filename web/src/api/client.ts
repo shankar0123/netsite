@@ -168,3 +168,40 @@ export function listAnnotations(
   const qs = params.toString();
   return request<Annotation[]>(`/v1/annotations${qs ? `?${qs}` : ""}`);
 }
+
+// ---- Anomaly verdicts ----------------------------------------------
+
+// Mirrors pkg/anomaly.Severity. Kept as a string union so a future
+// kind added on the backend (e.g. an explicit "saturating" tier)
+// fails closed at the type-checker rather than silently rendering
+// as "unknown".
+export type AnomalySeverity = "none" | "watch" | "anomaly" | "critical";
+export type AnomalyMethod =
+  | "holt_winters"
+  | "seasonal_decompose"
+  | "insufficient_data";
+
+export interface AnomalyVerdict {
+  tenant_id: string;
+  test_id: string;
+  metric: string;
+  method: AnomalyMethod;
+  severity: AnomalySeverity;
+  suppressed: boolean;
+  last_value: number;
+  forecast: number;
+  residual: number;
+  mad: number;
+  mad_units: number;
+  reason: string;
+  last_point_at: string;
+  evaluated_at: string;
+}
+
+// getAnomalyForTest returns the latest verdict for a test using the
+// default metric (latency_p95). 404 surfaces as ApiError so the
+// caller can render the "no verdict cached yet" empty state without
+// throwing.
+export function getAnomalyForTest(testID: string): Promise<AnomalyVerdict> {
+  return request<AnomalyVerdict>(`/v1/anomaly/tests/${encodeURIComponent(testID)}`);
+}

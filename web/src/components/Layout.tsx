@@ -67,7 +67,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <footer className="border-t border-zinc-800 px-4 py-3 text-xs text-zinc-500">
         <div className="mx-auto max-w-6xl flex items-center justify-between">
           <span>NetSite — self-hosted network observability</span>
-          <span className="font-mono">v0.0.18</span>
+          <span className="font-mono">v0.0.22</span>
         </div>
       </footer>
     </div>
