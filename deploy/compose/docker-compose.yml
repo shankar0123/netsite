@@ -66,20 +66,34 @@ services:
         soft: 262144
         hard: 262144
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      # Two things matter here:
+      #
+      # 1. **127.0.0.1, not localhost.** ClickHouse-alpine binds 8123
+      #    on 0.0.0.0 (IPv4 only — confirm with `ss -tlnp` inside the
+      #    container; you'll see `0.0.0.0:8123` and no `[::]:8123`).
+      #    /etc/hosts on alpine resolves `localhost` to both
+      #    `127.0.0.1` and `::1`, and busybox wget can pick the IPv6
+      #    address first; that connection gets refused (nothing on
+      #    ::1:8123) and the healthcheck fails forever even though
+      #    the server is up. Forcing 127.0.0.1 makes the resolution
+      #    deterministic.
+      #
+      # 2. **GET + body check, not --spider.** busybox `wget --spider`
+      #    sends a HEAD; ClickHouse's /ping handler returns "Ok." on
+      #    GET but the HEAD response is implementation-detail-prone.
+      #    Issuing a GET and grepping for "Ok" in the body is the
+      #    canonical ClickHouse-up test.
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8123/ping | grep -q Ok"]
       interval: 5s
       timeout: 3s
       retries: 10
-      # ClickHouse on Docker Desktop / ARM Macs runs an emulation layer
-      # for the alpine image and the entrypoint init phase (CREATE USER
-      # + CREATE DATABASE) takes a noisy minute or two during which
-      # libnuma's get_mempolicy() syscalls are denied (`get_mempolicy:
-      # Operation not permitted` lines in the log are this and are
-      # benign). Without a start_period the healthcheck retries ×
-      # interval = 50s ceiling expires before the real server has bound
-      # 8123 and the container goes unhealthy. start_period gives the
-      # init phase room to finish before the healthcheck is allowed to
-      # fail; once init completes 8123 binds within seconds.
+      # Docker Desktop / ARM Macs are slow on the first boot of the
+      # alpine image (libnuma's get_mempolicy() syscalls are denied,
+      # producing the benign `Operation not permitted` log noise; the
+      # entrypoint init phase runs CREATE USER + CREATE DATABASE
+      # before the real server starts). 90s is a comfortable margin
+      # for the slow-init case; once started, 8123 binds within
+      # seconds.
       start_period: 90s
 
   nats:
