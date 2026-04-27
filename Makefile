@@ -13,7 +13,7 @@
 # development, CI, and release tagging. Anything CI does should be
 # expressible as `make <target>`.
 
-.PHONY: build build-web embed-web test test-short test-integration lint vet fmt run-controlplane run-pop run-controlplane-tls dev-tls clean help
+.PHONY: build build-web embed-web test test-short test-integration lint vet fmt run-controlplane run-pop run-controlplane-tls dev-tls seed-demo clean help
 
 # Version inputs. Override on the command line for tagged releases:
 #   make build VERSION=v0.0.1
@@ -93,6 +93,10 @@ dev-tls: ## Issue a localhost cert via mkcert into deploy/dev-certs/. One-time s
 	@echo "  NETSITE_CONTROLPLANE_TLS_KEY_FILE=$$(pwd)/deploy/dev-certs/localhost-key.pem \\"
 	@echo "  NETSITE_CONTROLPLANE_HTTP_ADDR=127.0.0.1:8443 \\"
 	@echo "  ./ns-controlplane"
+
+seed-demo: build ## Seed a demo tenant + 3 POPs + 5 canaries + 1 SLO via `ns seed demo`. Idempotent.
+	NETSITE_CONTROLPLANE_DB_URL="$${NETSITE_CONTROLPLANE_DB_URL:-postgres://netsite:netsite@localhost:5432/netsite?sslmode=disable}" \
+	./ns seed demo
 
 run-pop: build ## Run ns-pop with NETSITE_POP_CONFIG pointing at a YAML.
 	NETSITE_POP_CONFIG="$${NETSITE_POP_CONFIG:-deploy/compose/pop.example.yaml}" \

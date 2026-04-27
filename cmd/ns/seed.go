@@ -54,6 +54,7 @@ later reference. Intended to be run once per cluster by an operator
 with database access.`,
 	}
 	c.AddCommand(newSeedAdminCmd())
+	c.AddCommand(newSeedDemoCmd())
 	return c
 }
 

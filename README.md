@@ -89,7 +89,7 @@ flowchart LR
 |---|---|---|
 | `ns-controlplane` | REST API, auth, SLO evaluator, NATS→ClickHouse ingest, embedded React dashboard | One per cluster |
 | `ns-pop` | Runs canary tests on a schedule, publishes results to NATS | One per geographic POP (you decide how many) |
-| `ns` | Operator CLI. Currently: `ns version` + `ns seed admin` | Anywhere; talks to Postgres directly for seeding |
+| `ns` | Operator CLI. Currently: `ns version`, `ns seed admin`, `ns seed demo` | Anywhere; talks to Postgres directly for seeding |
 
 **Four backing stores** (Docker Compose ships them all for dev):
 
@@ -127,6 +127,11 @@ cd deploy/compose && docker compose up -d && cd ../..
 make build
 NETSITE_SEED_PASSWORD='somethinglongand_secure' \
   ./ns seed admin --email you@example.com --tenant-id tnt-default
+
+# 2b. (Optional but recommended) seed a demo dataset — 3 POPs, 5
+#     canaries against well-known public targets (cf 1.1.1.1,
+#     google.com, quad9), and one 99.5% / 30-day SLO. Idempotent.
+make seed-demo
 
 # 3. Build the React shell + the controlplane with the SPA embedded.
 make build-all
@@ -380,6 +385,7 @@ TLS InsecureSkipVerify).
 |---|---|
 | `ns version` | Prints version, commit, build date. |
 | `ns seed admin` | Creates a tenant + admin user. Reads `NETSITE_SEED_PASSWORD` (preferred) or `--password` flag. |
+| `ns seed demo` | Inserts a starter dataset under `--tenant-id` (default `tnt-demo`): 3 POPs, 5 canaries against well-known public targets, 1 SLO at 99.5% / 30d. Idempotent. |
 
 ---
 
