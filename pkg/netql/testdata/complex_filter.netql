@@ -1,0 +1,1 @@
+count where (pop = 'pop-lhr-01' or pop = 'pop-fra-01') and not error_kind = 'timeout' over 12h

@@ -1,0 +1,1 @@
+count by error_kind where kind = 'http' over 7d

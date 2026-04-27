@@ -1,0 +1,1 @@
+latency_p95 by pop where target = 'api.example.com' over 24h
