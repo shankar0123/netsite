@@ -15,6 +15,7 @@ import "./styles.css";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./routes/login";
 import { DashboardPage } from "./routes/dashboard";
+import { NetQLPage } from "./routes/netql";
 
 // What: the React entry point. TanStack Router for navigation,
 // TanStack Query for server state, no Redux. The route tree below is
@@ -57,10 +58,17 @@ const dashboardRoute = createRoute({
   component: DashboardPage,
 });
 
+const netqlRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/netql",
+  component: NetQLPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   dashboardRoute,
+  netqlRoute,
 ]);
 
 const router = createRouter({ routeTree });

@@ -43,6 +43,7 @@ import (
 
 	"github.com/shankar0123/netsite/pkg/annotations"
 	"github.com/shankar0123/netsite/pkg/api/middleware"
+	"github.com/shankar0123/netsite/pkg/netql"
 	"github.com/shankar0123/netsite/pkg/slo"
 	promstore "github.com/shankar0123/netsite/pkg/store/prometheus"
 	"github.com/shankar0123/netsite/pkg/workspaces"
@@ -76,6 +77,8 @@ type Config struct {
 	Workspaces *workspaces.Service
 	// Annotations backs /v1/annotations. Required.
 	Annotations *annotations.Service
+	// NetQLRegistry backs /v1/netql/{translate,execute}. Required.
+	NetQLRegistry *netql.Registry
 
 	// TLSCertFile / TLSKeyFile point at PEM-encoded certificate and
 	// private key files for TLS-listen mode. When both are set the
@@ -153,6 +156,9 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Annotations == nil {
 		return nil, errors.New("api: nil Annotations")
 	}
+	if cfg.NetQLRegistry == nil {
+		return nil, errors.New("api: nil NetQLRegistry")
+	}
 	tlsEnabled, err := validateTLSConfig(&cfg)
 	if err != nil {
 		return nil, err
@@ -214,6 +220,12 @@ func New(cfg Config) (*Server, error) {
 	mux.Handle("POST /v1/annotations", middleware.Authorize("annotations:write", createAnnotationHandler(cfg.Annotations)))
 	mux.Handle("GET /v1/annotations/{id}", middleware.Authorize("annotations:read", getAnnotationHandler(cfg.Annotations)))
 	mux.Handle("DELETE /v1/annotations/{id}", middleware.Authorize("annotations:write", deleteAnnotationHandler(cfg.Annotations)))
+
+	// netql DSL — the "show me the SQL" reveal + the executor.
+	// translate is netql:read because it's effectively help text;
+	// execute is netql:execute because it consumes ClickHouse cycles.
+	mux.Handle("POST /v1/netql/translate", middleware.Authorize("netql:read", netqlTranslateHandler(cfg.NetQLRegistry)))
+	mux.Handle("POST /v1/netql/execute", middleware.Authorize("netql:execute", netqlExecuteHandler(cfg.NetQLRegistry, cfg.CH)))
 
 	// Prometheus metrics. Public on the dev stack; in production this
 	// is reachable only inside the cluster network.

@@ -19,7 +19,7 @@
 openapi: "3.1.0"
 info:
   title: NetSite Control Plane API
-  version: "0.0.13"
+  version: "0.0.17"
   description: |
     The NetSite control plane HTTP surface. All endpoints are under
     `/v1/`; breaking changes ship as `/v2/` and run side-by-side with
@@ -60,6 +60,8 @@ tags:
     description: Public read-only access to shared workspaces via short slug.
   - name: annotations
     description: Operator-pinned notes scoped to a (canary | pop | test, scope_id, timestamp) tuple. Immutable; correct typos by deleting + recreating.
+  - name: netql
+    description: Compile + execute netql DSL queries. translate is the "show me the SQL" reveal; execute runs against the metric's home backend (ClickHouse today; Prometheus arrives Phase 1).
 
 paths:
   /v1/health:
@@ -621,6 +623,72 @@ paths:
         "403": { description: forbidden }
         "404": { description: not found }
 
+  /v1/netql/translate:
+    post:
+      tags: [netql]
+      operationId: translateNetQL
+      summary: Compile a netql query
+      description: |
+        Pure compile path. Parses + type-checks + translates the
+        query and returns the compiled SQL or PromQL plus the
+        metric metadata. RBAC: netql:read.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: { type: string, example: "latency_p95 by pop where target = 'api.example.com' over 24h" }
+      responses:
+        "200":
+          description: compiled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NetQLTranslation" }
+        "400": { description: lex / parse / type error }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "422": { description: backend-mismatch / unsupported translation }
+
+  /v1/netql/execute:
+    post:
+      tags: [netql]
+      operationId: executeNetQL
+      summary: Compile + run a netql query
+      description: |
+        ClickHouse today. PromQL backend returns 501 with the
+        translated PromQL string (copy-paste into your Grafana
+        until controlplane wires a Prometheus query client in
+        Phase 1). RBAC: netql:execute.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: { type: string }
+      responses:
+        "200":
+          description: rows
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/NetQLTranslation"
+                  - type: object
+                    properties:
+                      columns: { type: array, items: { type: string } }
+                      rows: { type: array, items: { type: array, items: {} } }
+        "400": { description: lex / parse / type error }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "422": { description: translation error }
+        "501": { description: PromQL execution not yet implemented }
+
 components:
   schemas:
     Health:
@@ -952,6 +1020,23 @@ components:
             tenant_id: { type: string }
             author_id: { type: string }
             created_at: { type: string, format: date-time }
+
+    NetQLTranslation:
+      type: object
+      required: [backend, metric]
+      properties:
+        backend: { type: string, enum: [clickhouse, prometheus] }
+        metric: { type: string, example: latency_p95 }
+        sql:
+          type: string
+          description: Populated when backend=clickhouse. Parameterised; placeholders match `args`.
+        promql:
+          type: string
+          description: Populated when backend=prometheus.
+        args:
+          type: array
+          items: {}
+          description: Positional bind values for `sql`. The first is always the caller's tenant_id.
 
   securitySchemes:
     sessionCookie:

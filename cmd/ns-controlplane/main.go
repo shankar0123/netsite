@@ -47,6 +47,7 @@ import (
 	"github.com/shankar0123/netsite/pkg/auth"
 	"github.com/shankar0123/netsite/pkg/canary/ingest"
 	"github.com/shankar0123/netsite/pkg/integrations/otel"
+	"github.com/shankar0123/netsite/pkg/netql"
 	"github.com/shankar0123/netsite/pkg/slo"
 	chstore "github.com/shankar0123/netsite/pkg/store/clickhouse"
 	natsstore "github.com/shankar0123/netsite/pkg/store/nats"
@@ -233,6 +234,7 @@ func run(_ []string) int {
 		SLOStore:       sloStore,
 		Workspaces:     wksSvc,
 		Annotations:    annSvc,
+		NetQLRegistry:  netql.DefaultRegistry(),
 		TLSCertFile:    tlsCert,
 		TLSKeyFile:     tlsKey,
 		AllowPlaintext: allowPlaintext,

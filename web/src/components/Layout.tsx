@@ -34,6 +34,13 @@ export function Layout({ children }: { children: ReactNode }) {
               Dashboard
             </Link>
             <Link
+              to="/netql"
+              className="hover:text-zinc-100"
+              activeProps={{ className: "text-zinc-100" }}
+            >
+              netql
+            </Link>
+            <Link
               to="/login"
               className="hover:text-zinc-100"
               activeProps={{ className: "text-zinc-100" }}
