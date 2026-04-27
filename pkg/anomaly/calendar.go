@@ -95,14 +95,17 @@ func (c Calendar) Suppresses(t time.Time) (bool, string) {
 	if t.Before(w.End) {
 		return true, w.Reason
 	}
-	// Possibly an overlapping earlier window. Linear walk back.
-	// Real-world windows rarely overlap in practice; this loop is
-	// usually a single iteration.
+	// Possibly an overlapping earlier window — e.g., a long
+	// maintenance window (idx-2) that fully contains a smaller
+	// midday window (idx-1). Walk back and return the first ancestor
+	// whose End extends past t. Windows are sorted by Start, but
+	// their Ends are not; we cannot short-circuit on a single
+	// non-covering ancestor. Real-world windows rarely overlap, so
+	// this loop is normally just one or two iterations.
 	for j := idx - 2; j >= 0; j-- {
-		if c.windows[j].End.Before(t) || c.windows[j].End.Equal(t) {
-			break
+		if t.Before(c.windows[j].End) {
+			return true, c.windows[j].Reason
 		}
-		return true, c.windows[j].Reason
 	}
 	return false, ""
 }

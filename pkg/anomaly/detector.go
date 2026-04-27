@@ -147,9 +147,9 @@ func Detect(series Series, cfg Config) (Verdict, error) {
 				v.Severity = SeverityWatch
 			}
 			if reason != "" {
-				v.Reason = v.Reason + " (suppressed: " + reason + ")"
+				v.Reason += " (suppressed: " + reason + ")"
 			} else {
-				v.Reason = v.Reason + " (suppressed)"
+				v.Reason += " (suppressed)"
 			}
 		}
 	}

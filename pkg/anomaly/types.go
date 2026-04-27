@@ -153,9 +153,10 @@ var (
 	ErrInsufficientData = errors.New("anomaly: not enough samples for the chosen method")
 )
 
-// defaultConfig fills in the zero-value gaps of a user-supplied
-// Config. Exported as Defaults for callers that want to see what
-// the detector will use without running it.
+// Defaults fills in the zero-value gaps of a user-supplied Config.
+// Callers that want to see what the detector will actually run with
+// (e.g., for echoing back in an API response) can call Defaults
+// directly without invoking Detect.
 func Defaults(cfg Config) Config {
 	if cfg.Period <= 1 {
 		cfg.Period = 24
