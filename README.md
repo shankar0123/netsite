@@ -53,37 +53,34 @@ The full PRD lives outside this repo (workspace-private). The
 
 ## How the pieces fit together
 
-```
-                            ┌──────────────────┐
-                            │   Postgres 16    │  tenants, users, sessions,
-                            │   (relational)   │  tests catalog, SLO catalog,
-                            │                  │  workspaces, annotations
-                            └──────────▲───────┘
-                                       │
-   ┌────────┐   netsite.canary.results.>    ┌────────────────────┐
-   │ ns-pop │ ─────────────────────────────▶│   ns-controlplane  │
-   │  (1+)  │   NATS JetStream              │     (1, HTTPS)     │
-   └────────┘                               │                    │
-       │ runs DNS / HTTP / TLS              │  /v1/* REST + auth │
-       │ canaries every N seconds           │  SLO evaluator     │
-       │                                    │  embedded React UI │
-       │                                    └─┬───────────▲──────┘
-       │                                      │           │
-       │                                      │ inserts   │ queries
-       │                                      ▼           │
-       │                            ┌──────────────────┐  │
-       │                            │   ClickHouse 24  │  │ also serves
-       │                            │   (time-series)  │  │ /metrics
-       │                            │  canary_results  │  │ for Prometheus
-       │                            └──────────▲───────┘  │
-       │                                       │          │
-       │     OTel traces + metrics             │          │
-       └──────────────────────────────────────────────────┴──▶ OTel collector
-                                               │                (your stack)
-                                       ┌───────┴────────┐
-                                       │   Prometheus   │
-                                       │   (scrapes)    │
-                                       └────────────────┘
+```mermaid
+flowchart LR
+    subgraph pops["POPs (1+)"]
+        pop["ns-pop\nDNS / HTTP / TLS canaries\nevery N seconds"]
+    end
+
+    subgraph cp["ns-controlplane (1, HTTPS)"]
+        api["/v1/* REST + auth\nSLO evaluator\nNATS→ClickHouse ingest\nembedded React UI"]
+    end
+
+    subgraph stores["Backing stores"]
+        pg[("Postgres 16\ntenants, users, sessions,\ntests, SLOs, workspaces,\nannotations")]
+        ch[("ClickHouse 24\ncanary_results\n(90-day TTL)")]
+        nats[("NATS JetStream\nNETSITE_CANARY_RESULTS\nstream")]
+    end
+
+    subgraph obs["Operator observability"]
+        prom["Prometheus\nscrapes /metrics"]
+        otel["OTel collector\n(your stack)"]
+    end
+
+    pop -->|"netsite.canary.results.&gt;"| nats
+    nats -->|"pull-subscribe + insert"| api
+    api <-->|"pgxpool"| pg
+    api <-->|"clickhouse-go native"| ch
+    pop -.->|"OTLP gRPC traces+metrics"| otel
+    api -.->|"OTLP gRPC traces+metrics"| otel
+    api -.->|"/metrics"| prom
 ```
 
 **Three binaries**, each a single static Go executable:

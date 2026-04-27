@@ -15,48 +15,32 @@
 
 ## The shape, in one diagram
 
-```
-                      ┌─────────────────────────────────────┐
-                      │              Operators              │
-                      │   (browser, curl, ns CLI, future)   │
-                      └────────────┬─────────────┬──────────┘
-                                   │             │
-                       HTTPS /v1/* │             │ direct DSN
-                       + React UI  │             │ (ns seed)
-                                   ▼             ▼
-   ┌──────────────────────────────────────────────────────────┐
-   │                     ns-controlplane                      │
-   │  pkg/api · pkg/auth · pkg/slo · pkg/canary/ingest        │
-   │  pkg/workspaces · pkg/annotations · pkg/integrations/otel│
-   │  pkg/store/{postgres,clickhouse,nats,prometheus}         │
-   │  cmd/ns-controlplane: main + devtls + web (//go:embed)   │
-   └────────┬───────────────┬────────────┬───────────┬────────┘
-            │               │            │           │
-   pgxpool ▼      clickhouse-go ▼  nats.go ▼    promhttp ▼
-   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  /metrics scrape
-   │  Postgres 16 │  │ ClickHouse 24│  │ NATS Jet…    │  ┌──────────────┐
-   │              │  │              │  │              │  │ Prometheus   │
-   │ tenants,     │  │ canary_      │  │ NETSITE_     │  │ + Grafana    │
-   │ users,       │  │ results      │  │ CANARY_      │  │ (your stack) │
-   │ sessions,    │  │ (TS, 90d TTL)│  │ RESULTS      │  │              │
-   │ tests, slos, │  │              │  │ stream       │  │              │
-   │ workspaces,  │  │              │  │              │  └──────────────┘
-   │ annotations  │  │              │  │              │
-   └──────────────┘  └────────▲─────┘  └──────▲───────┘
-                              │ insert        │ publish
-                              │ via consumer  │
-                              │               │
-                       (controlplane)         │
-                                              │
-                                              │
-                                ┌─────────────┴────────┐
-                                │       ns-pop         │  one per
-                                │  pkg/popagent ·      │  geographic
-                                │  pkg/canary/{dns,    │  POP
-                                │  http,tls}           │
-                                └──────────────────────┘
-                                  runs DNS / HTTP / TLS
-                                  canaries every N seconds
+```mermaid
+flowchart TB
+    op["Operators\n(browser, curl, ns CLI)"]
+
+    subgraph cp["ns-controlplane"]
+        cpInternals["pkg/api · pkg/auth · pkg/slo · pkg/canary/ingest\npkg/workspaces · pkg/annotations · pkg/integrations/otel\npkg/store/{postgres,clickhouse,nats,prometheus}\ncmd/ns-controlplane: main + devtls + web (//go:embed)"]
+    end
+
+    pg[("Postgres 16\ntenants, users, sessions,\ntests, slos, workspaces,\nannotations")]
+    ch[("ClickHouse 24\ncanary_results\n(time-series, 90-day TTL)")]
+    nats[("NATS JetStream\nNETSITE_CANARY_RESULTS stream")]
+    prom["Prometheus + Grafana\n(your stack)"]
+
+    subgraph pops["ns-pop (one per geographic POP)"]
+        popInternals["pkg/popagent · pkg/canary/{dns,http,tls}\nruns DNS / HTTP / TLS canaries every N seconds"]
+    end
+
+    op -->|"HTTPS /v1/* + React UI"| cp
+    op -->|"direct DSN (ns seed)"| pg
+
+    cp <-->|"pgxpool"| pg
+    cp <-->|"clickhouse-go native: insert + query"| ch
+    cp <-->|"nats.go: pull-subscribe"| nats
+    cp -.->|"promhttp /metrics scrape"| prom
+
+    pops -->|"publish results"| nats
 ```
 
 ---
@@ -465,6 +449,42 @@ need to add code to the store package.
 
 A concrete trace of what happens when an HTTP canary against
 `https://example.com/` runs at `12:30:15 UTC`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Sched as ns-pop scheduler
+    participant Run as pkg/canary/http.Runner
+    participant NATS as NATS JetStream
+    participant Cons as ingest consumer
+    participant CH as ClickHouse
+    participant Eval as SLO evaluator
+    participant Note as WebhookNotifier
+    participant PG as Postgres
+    participant UI as Browser dashboard
+
+    Sched->>Run: tick (every 30s, jittered)
+    Run->>Run: HTTP probe with httptrace<br/>(DNS / connect / TLS / TTFB)
+    Run-->>Sched: Result {latency_ms, error_kind, ja3, ja4, ...}
+    Sched->>NATS: PUBLISH netsite.canary.results.tst-abc12345 (JSON)
+    Cons->>NATS: pull-subscribe (durable)
+    NATS-->>Cons: deliver message
+    Cons->>CH: INSERT INTO canary_results
+    Cons->>NATS: ACK
+    Note over Eval: 30s later: evaluator tick
+    Eval->>CH: countIf(error_kind = '') / count(*) per window
+    CH-->>Eval: rows
+    Eval->>Eval: burn-rate per window pair
+    alt threshold exceeded + cooldown elapsed
+        Eval->>Note: BurnEvent
+        Note->>Note: HTTPS POST to slo.NotifierURL
+    end
+    Eval->>PG: UPSERT slo_state
+    Note over UI: TanStack Query staleTime ≈ 30s
+    UI->>UI: refetch /v1/slos<br/>card re-renders with new objective_pct
+```
+
+The numbered prose:
 
 1. **`ns-pop` scheduler ticks.** The goroutine for test
    `tst-abc12345` wakes up, has waited its share of the

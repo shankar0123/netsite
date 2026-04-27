@@ -83,29 +83,17 @@ evaluator goroutine, the NATS-to-ClickHouse ingest consumer, and
 the embedded React dashboard. `ns-pop` runs canary checks on a
 schedule and publishes results to NATS.
 
-```
-   ┌─────────┐                                ┌────────────────────┐
-   │ ns-pop  │ ── netsite.canary.results.> ──▶│   ns-controlplane  │
-   │  (1+)   │   NATS JetStream subject       │     (1, HTTPS)     │
-   └─────────┘                                │                    │
-                                              │  /v1/* REST + auth │
-   POPs publish:                              │  SLO evaluator     │
-   {test_id, pop_id,                          │  embedded React UI │
-    observed_at, latency_ms,                  │                    │
-    error_kind, ja3, ja4, ...}                └─┬─────────▲────────┘
-                                                │         │
-                                              inserts    queries
-                                                ▼         │
-                                       ┌──────────────────┴┐
-                                       │   ClickHouse 24   │
-                                       │   canary_results  │
-                                       └───────────────────┘
+```mermaid
+flowchart LR
+    pop["ns-pop (1+)\npublishes:\n{test_id, pop_id, observed_at,\nlatency_ms, error_kind, ja3, ja4, ...}"]
+    cp["ns-controlplane (1, HTTPS)\n/v1/* REST + auth\nSLO evaluator\nembedded React UI"]
+    ch[("ClickHouse 24\ncanary_results")]
+    pg[("Postgres 16\ntenants, users, sessions,\ntests catalog, SLO catalog,\nworkspaces, annotations")]
 
-                                       ┌───────────────────┐
-                                       │   Postgres 16     │  tenants, users, sessions,
-                                       │   (relational)    │  tests catalog, SLO catalog,
-                                       │                   │  workspaces, annotations
-                                       └───────────────────┘
+    pop -->|"netsite.canary.results.&gt;\nNATS JetStream"| cp
+    cp -->|"insert"| ch
+    ch -->|"query"| cp
+    cp <-->|"pgxpool"| pg
 ```
 
 A third binary, `ns`, is the operator CLI. Today it's small —
