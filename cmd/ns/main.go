@@ -87,6 +87,7 @@ engines ship. See PROJECT_STATE.md for current status.`,
 		SilenceUsage: true,
 	}
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newSeedCmd())
 	return root
 }
 

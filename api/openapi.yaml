@@ -1,0 +1,210 @@
+# NetSite REST API — OpenAPI 3.1 specification.
+#
+# What: the contract between the NetSite control plane and every
+# client that talks to it (operator browser, ns CLI, POPs, future
+# integrations). Hand-written and lint-checked in CI; the Go handlers
+# are validated against this contract by inspection during code review.
+#
+# How: per OQ-02 (PROJECT_STATE.md §5), we hand-write the spec rather
+# than generate handlers from it. The trade-off: we get a clean
+# diligence story (no oapi-codegen quirks in the dependency graph) at
+# the cost of having to keep this file and the Go handlers manually
+# aligned. CI runs `redocly lint` to catch malformed YAML and contract
+# regressions early.
+#
+# Why OpenAPI 3.1 (not 3.0): 3.1 maps cleanly onto JSON Schema 2020-12,
+# which is what we want for any future code-gen consumers and what
+# Redoc/Swagger UI 5+ render natively.
+
+openapi: "3.1.0"
+info:
+  title: NetSite Control Plane API
+  version: "0.0.4"
+  description: |
+    The NetSite control plane HTTP surface. All endpoints are under
+    `/v1/`; breaking changes ship as `/v2/` and run side-by-side with
+    `/v1/` until clients migrate.
+
+    Authentication is cookie-based: a successful POST to
+    `/v1/auth/login` sets `ns_session`; subsequent requests carry it
+    automatically (HttpOnly + SameSite=Lax + Secure).
+
+    Error responses use plain text bodies for now; structured error
+    objects ship in Phase 1 alongside the request-id propagation work.
+  license:
+    name: Business Source License 1.1 (Change Date 2125-01-01, Apache 2.0)
+    url: https://mariadb.com/bsl11/
+servers:
+  - url: http://localhost:8080
+    description: Local development (compose stack)
+  - url: https://{host}
+    description: Self-hosted production
+    variables:
+      host:
+        default: netsite.example.com
+
+tags:
+  - name: health
+    description: Liveness and backend reachability.
+  - name: auth
+    description: Cookie-based authentication.
+
+paths:
+  /v1/health:
+    get:
+      tags: [health]
+      summary: Liveness and backend status
+      description: |
+        Always returns 200 as long as the process is up. Backend
+        reachability lives inside the JSON body's `backends` map; do
+        not gate downstream traffic on a single backend's health here
+        — use the per-backend probes in Prometheus instead.
+      responses:
+        "200":
+          description: process up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Exchange credentials for a session cookie
+      description: |
+        On success, sets the `ns_session` cookie (HttpOnly, SameSite=Lax,
+        Secure) and returns the authenticated user. Failures collapse
+        to 401 — clients cannot distinguish "no such user" from "wrong
+        password" by status or body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: authenticated
+          headers:
+            Set-Cookie:
+              description: ns_session
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: malformed request
+        "401":
+          description: invalid credentials
+
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Drop the current session
+      description: |
+        Idempotent: logging out an already-anonymous request returns
+        204. The server-side session row (if any) is deleted; the
+        cookie is cleared via Set-Cookie with MaxAge=-1.
+      responses:
+        "204":
+          description: logged out
+
+  /v1/auth/whoami:
+    get:
+      tags: [auth]
+      summary: Return the current authenticated user
+      description: |
+        Requires a valid `ns_session` cookie. Returns 401 for
+        anonymous requests or expired sessions.
+      responses:
+        "200":
+          description: authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: unauthorized
+
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status, version, commit, built, backends]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+          description: Always "ok" while the process is up.
+        version:
+          type: string
+          description: Semver-ish release tag of the running binary.
+          example: v0.0.4
+        commit:
+          type: string
+          description: Short Git SHA the binary was built from.
+          example: a91e31c
+        built:
+          type: string
+          description: UTC RFC3339 build timestamp.
+          example: "2026-04-26T00:00:00Z"
+        backends:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            Per-backend reachability summary. Keys are backend names
+            ("postgres", later "clickhouse", "nats"); values are
+            either "up" or "down: <reason>".
+          example:
+            postgres: up
+
+    LoginRequest:
+      type: object
+      required: [tenant_id, email, password]
+      properties:
+        tenant_id:
+          type: string
+          description: Prefixed-TEXT tenant identifier (e.g. tnt-acme).
+          example: tnt-default
+        email:
+          type: string
+          format: email
+          description: Case-insensitive email; lookup is via citext.
+          example: admin@example.com
+        password:
+          type: string
+          format: password
+          minLength: 12
+          description: Cleartext password. Length floor is enforced server-side.
+
+    User:
+      type: object
+      required: [id, tenant_id, email, role]
+      properties:
+        id:
+          type: string
+          description: Prefixed-TEXT user identifier.
+          example: usr-abcdef0123456789
+        tenant_id:
+          type: string
+          example: tnt-default
+        email:
+          type: string
+          format: email
+          example: admin@example.com
+        role:
+          type: string
+          enum: [admin, operator, viewer]
+          description: Coarse-grained role used by the RBAC layer.
+
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: ns_session
+
+security:
+  - sessionCookie: []

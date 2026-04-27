@@ -1,6 +1,12 @@
 # Compiled binaries
 /ns
-/ns-*
+/ns-controlplane
+/ns-pop
+/ns-bgp
+/ns-flow
+/ns-enricher
+/ns-pcap
+/ns-rum
 /bin/
 *.exe
 *.test

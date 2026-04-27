@@ -28,8 +28,9 @@ LDFLAGS := -X github.com/shankar0123/netsite/pkg/version.Version=$(VERSION) \
 help: ## Print this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-build: ## Build the ns CLI with version metadata injected.
+build: ## Build the ns CLI and ns-controlplane with version metadata injected.
 	go build -ldflags "$(LDFLAGS)" -o ns ./cmd/ns
+	go build -ldflags "$(LDFLAGS)" -o ns-controlplane ./cmd/ns-controlplane
 
 test: ## Run the test suite with the race detector and coverage.
 	go test -race -coverprofile=coverage.out ./...
@@ -49,13 +50,16 @@ fmt: ## Run gofmt -s -w on all Go files (run before commit).
 lint: ## Run golangci-lint (must be installed locally).
 	golangci-lint run --timeout=5m
 
-run-controlplane: ## Run ns-controlplane (not yet implemented; Task 0.12).
-	@echo "ns-controlplane not yet implemented (Task 0.12). See PROJECT_STATE.md."
-	@exit 1
+run-controlplane: build ## Run ns-controlplane against a NETSITE_CONTROLPLANE_DB_URL.
+	NETSITE_CONTROLPLANE_DB_URL="$${NETSITE_CONTROLPLANE_DB_URL:-postgres://netsite:netsite@localhost:5432/netsite?sslmode=disable}" \
+	NETSITE_CONTROLPLANE_HTTP_ADDR="$${NETSITE_CONTROLPLANE_HTTP_ADDR:-:8080}" \
+	NETSITE_OTEL_OTLP_ENDPOINT="$${NETSITE_OTEL_OTLP_ENDPOINT:-localhost:4317}" \
+	NETSITE_OTEL_INSECURE="$${NETSITE_OTEL_INSECURE:-true}" \
+	./ns-controlplane
 
 run-pop: ## Run ns-pop (not yet implemented; Task 0.17).
 	@echo "ns-pop not yet implemented (Task 0.17). See PROJECT_STATE.md."
 	@exit 1
 
 clean: ## Remove build artifacts.
-	rm -f ns coverage.out coverage.html
+	rm -f ns ns-controlplane ns-pop coverage.out coverage.html
