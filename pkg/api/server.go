@@ -43,6 +43,7 @@ import (
 	"github.com/shankar0123/netsite/pkg/api/middleware"
 	"github.com/shankar0123/netsite/pkg/slo"
 	promstore "github.com/shankar0123/netsite/pkg/store/prometheus"
+	"github.com/shankar0123/netsite/pkg/workspaces"
 )
 
 // Config holds the dependencies New() needs. All fields are required.
@@ -69,6 +70,8 @@ type Config struct {
 	CH driver.Conn
 	// SLOStore backs the /v1/slos handlers. Required.
 	SLOStore *slo.Store
+	// Workspaces backs /v1/workspaces and /v1/share/{slug}. Required.
+	Workspaces *workspaces.Service
 }
 
 // Server is an HTTP server bound to the NetSite control-plane API
@@ -109,6 +112,9 @@ func New(cfg Config) (*Server, error) {
 	if cfg.SLOStore == nil {
 		return nil, errors.New("api: nil SLOStore")
 	}
+	if cfg.Workspaces == nil {
+		return nil, errors.New("api: nil Workspaces")
+	}
 
 	mux := http.NewServeMux()
 
@@ -145,6 +151,19 @@ func New(cfg Config) (*Server, error) {
 	mux.Handle("POST /v1/slos", middleware.Authorize("slos:write", createSLOHandler(cfg.SLOStore)))
 	mux.Handle("GET /v1/slos/{id}", middleware.Authorize("slos:read", getSLOHandler(cfg.SLOStore)))
 	mux.Handle("DELETE /v1/slos/{id}", middleware.Authorize("slos:write", deleteSLOHandler(cfg.SLOStore)))
+
+	// Workspaces. Saved-view bundles. RBAC: workspaces:read for
+	// viewer+, workspaces:write for operator+. /v1/share/{slug} is
+	// public (the slug is the access control); see resolveShareHandler
+	// for the strip-tenant-and-owner logic.
+	mux.Handle("GET /v1/workspaces", middleware.Authorize("workspaces:read", listWorkspacesHandler(cfg.Workspaces)))
+	mux.Handle("POST /v1/workspaces", middleware.Authorize("workspaces:write", createWorkspaceHandler(cfg.Workspaces)))
+	mux.Handle("GET /v1/workspaces/{id}", middleware.Authorize("workspaces:read", getWorkspaceHandler(cfg.Workspaces)))
+	mux.Handle("PATCH /v1/workspaces/{id}", middleware.Authorize("workspaces:write", updateWorkspaceHandler(cfg.Workspaces)))
+	mux.Handle("DELETE /v1/workspaces/{id}", middleware.Authorize("workspaces:write", deleteWorkspaceHandler(cfg.Workspaces)))
+	mux.Handle("POST /v1/workspaces/{id}/share", middleware.Authorize("workspaces:write", shareWorkspaceHandler(cfg.Workspaces)))
+	mux.Handle("DELETE /v1/workspaces/{id}/share", middleware.Authorize("workspaces:write", unshareWorkspaceHandler(cfg.Workspaces)))
+	mux.Handle("GET /v1/share/{slug}", resolveShareHandler(cfg.Workspaces))
 
 	// Prometheus metrics. Public on the dev stack; in production this
 	// is reachable only inside the cluster network.

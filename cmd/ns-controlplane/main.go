@@ -50,6 +50,7 @@ import (
 	pgstore "github.com/shankar0123/netsite/pkg/store/postgres"
 	promstore "github.com/shankar0123/netsite/pkg/store/prometheus"
 	"github.com/shankar0123/netsite/pkg/version"
+	"github.com/shankar0123/netsite/pkg/workspaces"
 )
 
 func main() {
@@ -177,15 +178,23 @@ func run(_ []string) int {
 		}
 	}()
 
+	// Workspaces (saved-view bundles per Task 0.23). Single concrete
+	// store satisfies both the Reader and Mutator interfaces; the
+	// service composes them with the production Clock + ID/slug
+	// generators.
+	wksStore := workspaces.NewStore(pool)
+	wksSvc := workspaces.NewService(wksStore, wksStore, workspaces.Options{})
+
 	addr := envOr("NETSITE_CONTROLPLANE_HTTP_ADDR", ":8080")
 	srv, err := api.New(api.Config{
-		Addr:     addr,
-		Pool:     pool,
-		Logger:   logger,
-		PromReg:  promReg,
-		Auth:     authSvc,
-		CH:       chConn,
-		SLOStore: sloStore,
+		Addr:       addr,
+		Pool:       pool,
+		Logger:     logger,
+		PromReg:    promReg,
+		Auth:       authSvc,
+		CH:         chConn,
+		SLOStore:   sloStore,
+		Workspaces: wksSvc,
 	})
 	if err != nil {
 		logger.Error("api server build failed", slog.Any("err", err))

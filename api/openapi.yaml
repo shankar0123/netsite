@@ -19,7 +19,7 @@
 openapi: "3.1.0"
 info:
   title: NetSite Control Plane API
-  version: "0.0.7"
+  version: "0.0.11"
   description: |
     The NetSite control plane HTTP surface. All endpoints are under
     `/v1/`; breaking changes ship as `/v2/` and run side-by-side with
@@ -54,6 +54,10 @@ tags:
     description: POP (point-of-presence) roster.
   - name: slos
     description: Service-level objectives + multi-window multi-burn-rate evaluation.
+  - name: workspaces
+    description: Saved-view bundles. A workspace pins a list of views and gives the bundle a name; opening it later restores the page state.
+  - name: share
+    description: Public read-only access to shared workspaces via short slug.
 
 paths:
   /v1/health:
@@ -369,6 +373,169 @@ paths:
         "403": { description: forbidden }
         "404": { description: not found }
 
+  /v1/workspaces:
+    get:
+      tags: [workspaces]
+      operationId: listWorkspaces
+      summary: List workspaces in the calling tenant
+      description: |
+        Returns every workspace in the authenticated user's tenant,
+        ordered by `updated_at` descending. RBAC: workspaces:read.
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Workspace" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+    post:
+      tags: [workspaces]
+      operationId: createWorkspace
+      summary: Create a new workspace
+      description: |
+        RBAC: workspaces:write. The owner is the authenticated user;
+        tenant scoping is automatic.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceCreate" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "400": { description: invalid body }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+
+  /v1/workspaces/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [workspaces]
+      operationId: getWorkspace
+      summary: Get one workspace by id
+      description: |
+        RBAC: workspaces:read.
+      responses:
+        "200":
+          description: workspace
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: not found }
+    patch:
+      tags: [workspaces]
+      operationId: updateWorkspace
+      summary: Update mutable fields of a workspace
+      description: |
+        RBAC: workspaces:write. Fields omitted from the body are left
+        unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceUpdate" }
+      responses:
+        "200":
+          description: updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "400": { description: invalid body }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: not found }
+    delete:
+      tags: [workspaces]
+      operationId: deleteWorkspace
+      summary: Delete a workspace
+      description: |
+        RBAC: workspaces:write. Removes the row and any associated
+        share slug.
+      responses:
+        "204": { description: deleted }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: not found }
+
+  /v1/workspaces/{id}/share:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [workspaces]
+      operationId: shareWorkspace
+      summary: Mint a share slug for a workspace
+      description: |
+        Returns the workspace with `share_slug` and `share_expires_at`
+        populated. Calling Share twice rotates the slug; the previous
+        slug is effectively revoked. RBAC: workspaces:write.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceShareRequest" }
+      responses:
+        "200":
+          description: shared
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "400": { description: invalid body }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: not found }
+    delete:
+      tags: [workspaces]
+      operationId: unshareWorkspace
+      summary: Revoke the workspace share slug
+      description: |
+        Clears `share_slug` and `share_expires_at`. RBAC: workspaces:write.
+      responses:
+        "200":
+          description: revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: not found }
+
+  /v1/share/{slug}:
+    parameters:
+      - name: slug
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [share]
+      operationId: resolveShare
+      summary: Resolve a workspace share slug
+      description: |
+        Public read — no auth. The slug itself is the access control.
+        The response strips `tenant_id` and `owner_user_id` so an
+        outside observer cannot infer who owns the share.
+      responses:
+        "200":
+          description: workspace (sanitised)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "404": { description: not found or expired }
+
 components:
   schemas:
     Health:
@@ -578,6 +745,97 @@ components:
             id: { type: string }
             tenant_id: { type: string }
             created_at: { type: string, format: date-time }
+
+    View:
+      type: object
+      required: [name, url]
+      properties:
+        name:
+          type: string
+          description: Human-readable name shown in the workspace UI.
+          example: p95 latency by POP
+        url:
+          type: string
+          description: |
+            Canonical deep-link to the pinned view. Treated as opaque
+            by the server; the frontend interprets it.
+          example: /dashboard/canary?metric=latency_p95
+        note:
+          type: string
+          description: Optional short note explaining what the view shows.
+
+    WorkspaceCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          example: Q3 incident review
+        description:
+          type: string
+          maxLength: 2000
+        views:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/View" }
+
+    WorkspaceUpdate:
+      type: object
+      description: |
+        All fields are optional. Fields omitted from the body leave
+        the corresponding column unchanged. To clear a field, send
+        an explicit empty value (empty string for description, empty
+        array for views).
+      properties:
+        name: { type: string, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        views:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/View" }
+
+    WorkspaceShareRequest:
+      type: object
+      properties:
+        ttl_seconds:
+          type: integer
+          minimum: 1
+          description: |
+            Lifetime of the share link in seconds. Omit (or pass 0)
+            to use the default 7-day expiry.
+          example: 604800
+
+    Workspace:
+      type: object
+      required: [id, name, views]
+      properties:
+        id: { type: string, example: wks-abc12345 }
+        tenant_id:
+          type: string
+          description: |
+            Tenant that owns the workspace. Stripped to empty string
+            on /v1/share/{slug} responses.
+        owner_user_id:
+          type: string
+          description: |
+            User who created the workspace. Stripped on /v1/share/{slug}.
+        name: { type: string }
+        description: { type: string }
+        views:
+          type: array
+          items: { $ref: "#/components/schemas/View" }
+        share_slug:
+          type: string
+          description: |
+            Non-empty when the workspace has been shared. Treat as
+            opaque; the slug itself is the share secret.
+        share_expires_at:
+          type: [string, "null"]
+          format: date-time
+          description: When the share slug stops resolving. NULL means no expiry.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
 
   securitySchemes:
     sessionCookie:

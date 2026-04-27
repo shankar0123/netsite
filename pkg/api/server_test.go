@@ -26,6 +26,7 @@ import (
 
 	"github.com/shankar0123/netsite/pkg/auth"
 	"github.com/shankar0123/netsite/pkg/slo"
+	"github.com/shankar0123/netsite/pkg/workspaces"
 )
 
 // stubAuth is a minimal authService implementation for tests that
@@ -52,19 +53,21 @@ func TestNew_Validations(t *testing.T) {
 	stub := stubAuth{}
 	ch := stubCH{}
 	store := slo.NewStore(nil)
+	wks := workspaces.NewService(workspaces.NewStore(nil), workspaces.NewStore(nil), workspaces.Options{})
 
 	cases := []struct {
 		name    string
 		cfg     Config
 		wantSub string
 	}{
-		{"empty Addr", Config{Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store}, "Addr"},
-		{"nil Pool", Config{Addr: ":0", Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store}, "Pool"},
-		{"nil Logger", Config{Addr: ":0", Pool: pool, PromReg: reg, Auth: stub, CH: ch, SLOStore: store}, "Logger"},
-		{"nil PromReg", Config{Addr: ":0", Pool: pool, Logger: logger, Auth: stub, CH: ch, SLOStore: store}, "PromReg"},
-		{"nil Auth", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, CH: ch, SLOStore: store}, "Auth"},
-		{"nil CH", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, SLOStore: store}, "CH"},
-		{"nil SLOStore", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch}, "SLOStore"},
+		{"empty Addr", Config{Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks}, "Addr"},
+		{"nil Pool", Config{Addr: ":0", Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks}, "Pool"},
+		{"nil Logger", Config{Addr: ":0", Pool: pool, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks}, "Logger"},
+		{"nil PromReg", Config{Addr: ":0", Pool: pool, Logger: logger, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks}, "PromReg"},
+		{"nil Auth", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, CH: ch, SLOStore: store, Workspaces: wks}, "Auth"},
+		{"nil CH", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, SLOStore: store, Workspaces: wks}, "CH"},
+		{"nil SLOStore", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, Workspaces: wks}, "SLOStore"},
+		{"nil Workspaces", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store}, "Workspaces"},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -87,13 +90,14 @@ func TestNew_Validations(t *testing.T) {
 // the expected Addr.
 func TestNew_OK(t *testing.T) {
 	cfg := Config{
-		Addr:     "127.0.0.1:0",
-		Pool:     &pgxpool.Pool{},
-		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		PromReg:  prometheus.NewRegistry(),
-		Auth:     stubAuth{},
-		CH:       stubCH{},
-		SLOStore: slo.NewStore(nil),
+		Addr:       "127.0.0.1:0",
+		Pool:       &pgxpool.Pool{},
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		PromReg:    prometheus.NewRegistry(),
+		Auth:       stubAuth{},
+		CH:         stubCH{},
+		SLOStore:   slo.NewStore(nil),
+		Workspaces: workspaces.NewService(workspaces.NewStore(nil), workspaces.NewStore(nil), workspaces.Options{}),
 	}
 	s, err := New(cfg)
 	if err != nil {
