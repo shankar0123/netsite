@@ -104,8 +104,11 @@ from, and the build timestamp. Default values ("dev", "unknown",
 inject real values via -ldflags.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			// Use the command's stdout (cmd.OutOrStdout) rather than the
-			// process stdout so tests can swap it for a buffer.
-			fmt.Fprintln(cmd.OutOrStdout(), version.String())
+			// process stdout so tests can swap it for a buffer. We
+			// explicitly discard Fprintln's return values: a write error
+			// to stdout from a CLI banner is unrecoverable, and the
+			// errcheck linter requires the discard be explicit.
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), version.String())
 		},
 	}
 }

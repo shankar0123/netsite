@@ -83,11 +83,11 @@ func TestMigrations_ExposesEmbeddedFiles(t *testing.T) {
 // prefixes per the migrations README.
 func TestListSQLFiles_LexOrder(t *testing.T) {
 	fsys := fstest.MapFS{
-		"0010_b.sql":   {Data: []byte("-- b")},
-		"0002_a.sql":   {Data: []byte("-- a")},
+		"0010_b.sql":    {Data: []byte("-- b")},
+		"0002_a.sql":    {Data: []byte("-- a")},
 		"0001_init.sql": {Data: []byte("-- init")},
-		"README.md":    {Data: []byte("# not sql")},
-		"sub/dir/x":    {Data: []byte("not at root")},
+		"README.md":     {Data: []byte("# not sql")},
+		"sub/dir/x":     {Data: []byte("not at root")},
 	}
 	got, err := listSQLFiles(fsys)
 	if err != nil {

@@ -1,0 +1,52 @@
+# golangci-lint v2 configuration.
+#
+# What: pins the linters and rules CI runs.
+# How:  golangci-lint v2 schema (docs: https://golangci-lint.run/usage/configuration/).
+# Why:  default-set linters drift across versions; an explicit allow-list keeps
+#       PR feedback deterministic. The set below is intentionally conservative for
+#       a v0 codebase and will expand as packages stabilise.
+
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+
+linters:
+  default: none
+  enable:
+    - errcheck     # catches unchecked errors (incl. fmt.Fprintln)
+    - govet        # standard go vet pass
+    - ineffassign  # ineffective assignments
+    - staticcheck  # superset of stylecheck/gosimple/unused
+    - unused       # unused vars/funcs/types/fields
+    - misspell     # common misspellings
+    - gocritic     # opinionated extra checks
+    - revive       # configurable replacement for golint
+
+  settings:
+    revive:
+      rules:
+        - name: package-comments
+          disabled: false
+        - name: exported
+          disabled: false
+
+  exclusions:
+    rules:
+      # Test helper files frequently take unused arguments to satisfy
+      # interfaces; that's fine.
+      - path: _test\.go
+        linters:
+          - revive
+        text: "unused-parameter"
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
