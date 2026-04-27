@@ -265,8 +265,19 @@ func (e *Evaluator) EvaluateOne(ctx context.Context, slo SLO, now time.Time) err
 		// constructed every fire to avoid a long-lived map of
 		// webhook clients keyed by URL — the alert rate is one per
 		// SLO per cooldown, which is human-scale.
+		//
+		// TLS posture (CLAUDE.md A11): NewWebhookNotifier rejects
+		// non-https URLs. A misconfigured SLO with a plaintext
+		// webhook gets logged + skipped rather than sending the
+		// alert payload over plain HTTP.
 		if slo.NotifierURL != "" {
-			notifier = NewWebhookNotifier(slo.NotifierURL)
+			n, err := NewWebhookNotifier(slo.NotifierURL)
+			if err != nil {
+				e.Logger.Warn("slo notifier rejected (insecure URL)",
+					slog.String("slo_id", slo.ID), slog.Any("err", err))
+				return e.Reader.UpsertState(ctx, newState)
+			}
+			notifier = n
 		}
 		if err := notifier.Notify(ctx, ev); err != nil {
 			e.Logger.Warn("notifier failed",

@@ -44,3 +44,32 @@ Use GitHub's private vulnerability reporting at
 <https://github.com/shankar0123/netsite/security/advisories/new>. See
 [`SECURITY.md`](./SECURITY.md). Do not file public issues for security
 reports.
+
+The trajectory-wide TLS / encryption / access-control posture lives in
+[`docs/security.md`](./docs/security.md). NetSite's load-bearing
+invariant: every operator-facing network surface defaults to TLS 1.3+
+(architecture decision **A11** in
+[`CLAUDE.md`](../CLAUDE.md)). Plaintext is opt-in via explicit env var
+and emits a Warn-level log line at boot.
+
+### Production deployment checklist
+
+The control plane refuses to start without one of:
+
+- `NETSITE_CONTROLPLANE_TLS_CERT_FILE` and
+  `NETSITE_CONTROLPLANE_TLS_KEY_FILE` pointing at PEM-encoded files
+  (TLS-listen mode — recommended for direct-to-internet deployments),
+  **or**
+- `NETSITE_CONTROLPLANE_ALLOW_PLAINTEXT=true` (when a TLS-terminating
+  reverse proxy — Caddy, nginx, cloud LB — sits in front).
+
+Other production-checklist items, all enforced at runtime where
+possible:
+
+- Postgres DSN includes `sslmode=verify-full`.
+- ClickHouse URL includes `secure=true`.
+- NATS URL is `tls://...` between control plane and POP agents.
+- `NETSITE_OTEL_INSECURE` unset or `false`.
+- All SLO webhook URLs are `https://` (the notifier rejects others
+  by default; `AllowInsecure: true` on the struct is the documented
+  internal-only escape hatch).

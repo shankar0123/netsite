@@ -30,6 +30,7 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -72,13 +73,44 @@ type Config struct {
 	SLOStore *slo.Store
 	// Workspaces backs /v1/workspaces and /v1/share/{slug}. Required.
 	Workspaces *workspaces.Service
+
+	// TLSCertFile / TLSKeyFile point at PEM-encoded certificate and
+	// private key files for TLS-listen mode. When both are set the
+	// server binds via ListenAndServeTLS, mounts the HSTS middleware,
+	// and rejects plaintext connections.
+	//
+	// Why operator-supplied cert files rather than ACME / Let's
+	// Encrypt automation: NetSite is a self-hosted product. Operators
+	// already manage TLS certs for their other infrastructure (cert-
+	// manager in k8s, Caddy in single-node, manual cron in air-gap).
+	// Adding ACME would be one more dependency for a problem the
+	// operator already solved.
+	TLSCertFile string
+	TLSKeyFile  string
+
+	// AllowPlaintext lets the server start without TLS. The
+	// constitution (CLAUDE.md A11) requires deliberate opt-in: an
+	// operator unsetting both TLS{Cert,Key}File AND failing to set
+	// AllowPlaintext=true gets a hard error at New(). The opt-in is
+	// also surfaced as a Warn-level log line at boot so the
+	// plaintext posture is never silent.
+	AllowPlaintext bool
+
+	// TLSMinVersion is the minimum protocol version when TLS is
+	// active. Defaults to tls.VersionTLS13 when zero. TLS 1.2 is
+	// supported behind an explicit operator opt-in for environments
+	// with legacy clients (e.g., enterprise proxies that haven't
+	// rolled TLS 1.3 yet). Anything below TLS 1.2 is hard-rejected
+	// because all known production clients support 1.2 by 2026.
+	TLSMinVersion uint16
 }
 
-// Server is an HTTP server bound to the NetSite control-plane API
+// Server is an HTTP(S) server bound to the NetSite control-plane API
 // surface. Construct with New, run with Run.
 type Server struct {
-	cfg     Config
-	httpSrv *http.Server
+	cfg        Config
+	httpSrv    *http.Server
+	tlsEnabled bool
 }
 
 // shutdownTimeout bounds how long Run waits for in-flight requests
@@ -114,6 +146,10 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.Workspaces == nil {
 		return nil, errors.New("api: nil Workspaces")
+	}
+	tlsEnabled, err := validateTLSConfig(&cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	mux := http.NewServeMux()
@@ -172,25 +208,73 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	// Middleware composition (outermost first):
-	//   logging → recovery → authenticate → mux
+	//   logging → recovery → [hsts when TLS] → authenticate → mux
 	// Authenticate populates the user in context for routes that opt
 	// in via middleware.Authorize. Login/logout/health are public and
-	// see Authenticate as a no-op.
+	// see Authenticate as a no-op. HSTS only mounts in TLS-listen
+	// mode — telling a browser "always use TLS" while we're talking
+	// over plain HTTP would break the very server it just hit.
 	handler := middleware.Authenticate(cfg.Auth, mux)
+	if tlsEnabled {
+		handler = middleware.HSTS(handler)
+	} else {
+		// Plaintext mode is opt-in (CLAUDE.md A11). Log it loudly so
+		// the operator sees the warning in production logs and
+		// distinguishes a misconfigured deployment from a deliberate
+		// one.
+		cfg.Logger.Warn("api: TLS disabled (NETSITE_CONTROLPLANE_ALLOW_PLAINTEXT=true). Production deployments must terminate TLS upstream or set TLSCertFile/TLSKeyFile.")
+	}
 	handler = middleware.Recover(cfg.Logger, handler)
 	handler = middleware.Logging(cfg.Logger, handler)
 
-	return &Server{
-		cfg: cfg,
-		httpSrv: &http.Server{
-			Addr:              cfg.Addr,
-			Handler:           handler,
-			ReadHeaderTimeout: 10 * time.Second,
-			ReadTimeout:       30 * time.Second,
-			WriteTimeout:      60 * time.Second,
-			IdleTimeout:       120 * time.Second,
-		},
-	}, nil
+	srv := &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	if tlsEnabled {
+		srv.TLSConfig = &tls.Config{MinVersion: cfg.TLSMinVersion}
+	}
+	return &Server{cfg: cfg, httpSrv: srv, tlsEnabled: tlsEnabled}, nil
+}
+
+// validateTLSConfig enforces architecture invariant A11: every
+// operator-facing network surface defaults to TLS 1.3+. Returns
+// whether the server should listen in TLS mode, plus a wrapped
+// error when the config is incoherent.
+//
+// The matrix:
+//
+//	cert AND key set, plaintext=false → TLS, valid.
+//	cert AND key set, plaintext=true  → TLS (cert wins; warn? today: ok).
+//	cert OR key set (not both)        → invalid.
+//	neither set, plaintext=true       → plaintext (warn at boot).
+//	neither set, plaintext=false      → invalid (refuse to start).
+//
+// Default min TLS version is 1.3. Operators can opt down to 1.2 by
+// setting TLSMinVersion explicitly; anything lower is rejected.
+func validateTLSConfig(cfg *Config) (bool, error) {
+	hasCert := cfg.TLSCertFile != ""
+	hasKey := cfg.TLSKeyFile != ""
+	if hasCert != hasKey {
+		return false, errors.New("api: TLSCertFile and TLSKeyFile must be set together")
+	}
+	tlsEnabled := hasCert && hasKey
+	if !tlsEnabled && !cfg.AllowPlaintext {
+		return false, errors.New("api: refusing to start without TLS; set TLSCertFile+TLSKeyFile or AllowPlaintext=true (NETSITE_CONTROLPLANE_ALLOW_PLAINTEXT=true) to opt into plaintext")
+	}
+	if tlsEnabled {
+		if cfg.TLSMinVersion == 0 {
+			cfg.TLSMinVersion = tls.VersionTLS13
+		}
+		if cfg.TLSMinVersion < tls.VersionTLS12 {
+			return false, fmt.Errorf("api: TLSMinVersion must be ≥ TLS 1.2 (got 0x%x)", cfg.TLSMinVersion)
+		}
+	}
+	return tlsEnabled, nil
 }
 
 // Addr returns the configured listen address. Useful in tests that
@@ -207,12 +291,30 @@ func (s *Server) Handler() http.Handler {
 	return s.httpSrv.Handler
 }
 
+// TLSEnabled reports whether the server will bind via
+// ListenAndServeTLS. Useful for tests + boot-time logging.
+func (s *Server) TLSEnabled() bool { return s.tlsEnabled }
+
 // Run starts the server and blocks until ctx is canceled or the
 // server returns an error. On ctx cancellation it performs a
 // graceful shutdown bounded by shutdownTimeout.
+//
+// TLS-listen mode (when both TLSCertFile and TLSKeyFile are set):
+//   - Binds via ListenAndServeTLS using the configured min protocol
+//     version (default: TLS 1.3).
+//   - Mounts the HSTS middleware so browsers refuse plaintext
+//     downgrade for the next year.
+//
+// Plaintext mode requires explicit AllowPlaintext=true (CLAUDE.md
+// A11). The Warn-level boot log emitted in New() makes the
+// posture visible in production logs.
 func (s *Server) Run(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {
+		if s.tlsEnabled {
+			errCh <- s.httpSrv.ListenAndServeTLS(s.cfg.TLSCertFile, s.cfg.TLSKeyFile)
+			return
+		}
 		errCh <- s.httpSrv.ListenAndServe()
 	}()
 

@@ -186,22 +186,36 @@ func run(_ []string) int {
 	wksSvc := workspaces.NewService(wksStore, wksStore, workspaces.Options{})
 
 	addr := envOr("NETSITE_CONTROLPLANE_HTTP_ADDR", ":8080")
+	// TLS posture per CLAUDE.md A11: every operator-facing network
+	// surface defaults to TLS 1.3+. Operators set the cert/key pair
+	// for TLS-listen mode; if running behind a TLS-terminating
+	// reverse proxy (nginx, Caddy, cloud LB), they explicitly opt
+	// into plaintext via NETSITE_CONTROLPLANE_ALLOW_PLAINTEXT=true.
+	tlsCert := os.Getenv("NETSITE_CONTROLPLANE_TLS_CERT_FILE")
+	tlsKey := os.Getenv("NETSITE_CONTROLPLANE_TLS_KEY_FILE")
+	allowPlaintext := os.Getenv("NETSITE_CONTROLPLANE_ALLOW_PLAINTEXT") == "true"
 	srv, err := api.New(api.Config{
-		Addr:       addr,
-		Pool:       pool,
-		Logger:     logger,
-		PromReg:    promReg,
-		Auth:       authSvc,
-		CH:         chConn,
-		SLOStore:   sloStore,
-		Workspaces: wksSvc,
+		Addr:           addr,
+		Pool:           pool,
+		Logger:         logger,
+		PromReg:        promReg,
+		Auth:           authSvc,
+		CH:             chConn,
+		SLOStore:       sloStore,
+		Workspaces:     wksSvc,
+		TLSCertFile:    tlsCert,
+		TLSKeyFile:     tlsKey,
+		AllowPlaintext: allowPlaintext,
 	})
 	if err != nil {
 		logger.Error("api server build failed", slog.Any("err", err))
 		return exitServerBuild
 	}
 
-	logger.Info("serving", slog.String("addr", addr))
+	logger.Info("serving",
+		slog.String("addr", addr),
+		slog.Bool("tls", srv.TLSEnabled()),
+	)
 	if err := srv.Run(ctx); err != nil {
 		logger.Error("server stopped with error", slog.Any("err", err))
 		return exitServerRuntime

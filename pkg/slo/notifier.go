@@ -18,9 +18,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -82,19 +84,37 @@ func (n LogNotifier) Notify(_ context.Context, ev BurnEvent) error {
 // error) surfaces as an error to the evaluator, which logs but
 // does not retry. JetStream-style retry semantics for alerts are
 // a Phase 5 concern; today's webhook is best-effort.
+//
+// TLS posture (CLAUDE.md A11): URL must be https://. Plaintext is
+// opt-in via AllowInsecure=true so an operator who wires a Slack
+// "Incoming Webhook" or PagerDuty endpoint can't accidentally send
+// an alert payload over plain HTTP.
 type WebhookNotifier struct {
 	URL    string
 	Client *http.Client
+	// AllowInsecure permits http:// URLs. Default false. Operators
+	// integrating with internal-only receivers that lack TLS opt
+	// in here. Production deployments should leave this false.
+	AllowInsecure bool
 }
+
+// ErrInsecureWebhook is returned by NewWebhookNotifier when URL is
+// not https:// and AllowInsecure is false.
+var ErrInsecureWebhook = errors.New("slo: webhook URL must be https:// (or set AllowInsecure=true)")
 
 // NewWebhookNotifier returns a WebhookNotifier with a sane default
 // http.Client (5s timeout). Pass a custom client when the receiver
-// needs auth or longer timeouts.
-func NewWebhookNotifier(url string) *WebhookNotifier {
+// needs auth or longer timeouts. Returns ErrInsecureWebhook when
+// URL is not https://; callers can either fix the URL or
+// instantiate WebhookNotifier directly with AllowInsecure=true.
+func NewWebhookNotifier(url string) (*WebhookNotifier, error) {
+	if !strings.HasPrefix(url, "https://") {
+		return nil, fmt.Errorf("%w: got %q", ErrInsecureWebhook, url)
+	}
 	return &WebhookNotifier{
 		URL:    url,
 		Client: &http.Client{Timeout: 5 * time.Second},
-	}
+	}, nil
 }
 
 // Notify implements Notifier.
