@@ -79,7 +79,7 @@ type State struct {
 	LastAlertedAt   time.Time
 }
 
-// SLOWithState pairs an SLO definition with its most recent
+// WithState pairs an SLO definition with its most recent
 // evaluator State (if any). Returned by ListSLOsWithState so the
 // LIST endpoint can render burn rate + status in one round-trip
 // rather than N+1 fetches against `/v1/slos/{id}/state` (an
@@ -91,7 +91,10 @@ type State struct {
 // the JSON-rendered State block looks identical for the two cases:
 // LastStatus="ok" and LastStatus="" both serialize the same way
 // once the zero-value State default is applied.
-type SLOWithState struct {
+//
+// Named WithState (not SLOWithState) so callers read it as
+// `slo.WithState` rather than the stutter-prone `slo.SLOWithState`.
+type WithState struct {
 	SLO
 	State    State
 	HasState bool

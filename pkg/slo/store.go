@@ -176,7 +176,7 @@ func (s *Store) ListSLOs(ctx context.Context, tenantID string) ([]SLO, error) {
 // Why not fold this into ListSLOs(): callers that don't care about
 // state (e.g. the netql translator's metric registry) shouldn't
 // pay for the join. Two methods, one fast path each.
-func (s *Store) ListSLOsWithState(ctx context.Context, tenantID string) ([]SLOWithState, error) {
+func (s *Store) ListSLOsWithState(ctx context.Context, tenantID string) ([]WithState, error) {
 	rows, err := s.pool.Query(ctx, `
         SELECT s.id, s.tenant_id, s.name, s.description, s.sli_kind, s.sli_filter,
                s.objective_pct, s.window_seconds,
@@ -192,28 +192,32 @@ func (s *Store) ListSLOsWithState(ctx context.Context, tenantID string) ([]SLOWi
 		return nil, fmt.Errorf("slo: list with state: %w", err)
 	}
 	defer rows.Close()
-	out := []SLOWithState{}
+	out := []WithState{}
 	for rows.Next() {
 		var (
-			row         SLOWithState
+			row         WithState
 			rawFilter   []byte
 			lastEvalAt  *time.Time
 			lastStatus  *string
 			lastBurn    *float64
 			lastAlertAt *time.Time
 		)
+		// Scan into the promoted SLO fields directly. The embedded
+		// SLO is anonymous so row.ID, row.TenantID, etc. resolve to
+		// row.SLO.ID, row.SLO.TenantID — staticcheck QF1008 prefers
+		// the promoted form.
 		if err := rows.Scan(
-			&row.SLO.ID, &row.SLO.TenantID, &row.SLO.Name, &row.SLO.Description,
-			(*string)(&row.SLO.SLIKind), &rawFilter,
-			&row.SLO.ObjectivePct, &row.SLO.WindowSeconds,
-			&row.SLO.FastBurnThreshold, &row.SLO.SlowBurnThreshold,
-			&row.SLO.NotifierURL, &row.SLO.Enabled, &row.SLO.CreatedAt,
+			&row.ID, &row.TenantID, &row.Name, &row.Description,
+			(*string)(&row.SLIKind), &rawFilter,
+			&row.ObjectivePct, &row.WindowSeconds,
+			&row.FastBurnThreshold, &row.SlowBurnThreshold,
+			&row.NotifierURL, &row.Enabled, &row.CreatedAt,
 			&lastEvalAt, &lastStatus, &lastBurn, &lastAlertAt,
 		); err != nil {
 			return nil, fmt.Errorf("slo: scan with state: %w", err)
 		}
 		if len(rawFilter) > 0 {
-			_ = json.Unmarshal(rawFilter, &row.SLO.SLIFilter)
+			_ = json.Unmarshal(rawFilter, &row.SLIFilter)
 		}
 		// HasState is true iff the LEFT JOIN produced a row (any of
 		// the joined columns is non-nil; we test last_evaluated_at
@@ -221,7 +225,7 @@ func (s *Store) ListSLOsWithState(ctx context.Context, tenantID string) ([]SLOWi
 		if lastEvalAt != nil {
 			row.HasState = true
 			row.State = State{
-				SLOID:           row.SLO.ID,
+				SLOID:           row.ID,
 				LastEvaluatedAt: *lastEvalAt,
 				LastStatus:      Status(deref(lastStatus)),
 				LastBurnRate:    derefFloat(lastBurn),

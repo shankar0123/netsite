@@ -96,7 +96,7 @@ func toSLOResponse(s slo.SLO) sloResponse {
 
 // toSLOWithStateResponse is toSLOResponse + the optional state
 // block. Used by the LIST handler in v0.0.23+.
-func toSLOWithStateResponse(s slo.SLOWithState) sloResponse {
+func toSLOWithStateResponse(s slo.WithState) sloResponse {
 	r := toSLOResponse(s.SLO)
 	if s.HasState {
 		var alerted *time.Time
