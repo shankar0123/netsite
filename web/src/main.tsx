@@ -16,21 +16,30 @@ import { Layout } from "./components/Layout";
 import { LoginPage } from "./routes/login";
 import { DashboardPage } from "./routes/dashboard";
 import { NetQLPage } from "./routes/netql";
+import { CanariesPage, CanaryDetailPage } from "./routes/canaries";
+import { SLOsPage } from "./routes/slos";
+import { WorkspacesPage } from "./routes/workspaces";
+import { AnnotationsPage } from "./routes/annotations";
 
 // What: the React entry point. TanStack Router for navigation,
-// TanStack Query for server state, no Redux. The route tree below is
-// declared programmatically (not file-based) so the v0.0.14 scaffold
-// is small and reviewable; we'll migrate to file-based routes in
-// v0.0.15 as the route count grows past four.
+// TanStack Query for server state, no Redux.
 //
-// How: createRootRoute + child routes for /login and /dashboard. The
-// router is wrapped in a QueryClientProvider so any route can use
-// useQuery / useMutation. The session-cookie auth flow lives in
-// `src/api/client.ts`; routes call those helpers directly.
+// How: createRootRoute + child routes for the nine v0.0.18 surfaces
+// (/, /login, /dashboard, /netql, /canaries, /canaries/$id, /slos,
+// /workspaces, /annotations). The router is wrapped in a
+// QueryClientProvider so any route can use useQuery / useMutation.
+// The session-cookie auth flow lives in `src/api/client.ts`; routes
+// call those helpers directly.
 //
-// Why no auth-router yet: Task 0.25's exit criterion is "login →
-// dashboard renders live data". Anything fancier (route guards,
-// lazy code-splitting per role) is v0.0.15+ work.
+// Why programmatic-not-file-based routes: with nine routes the
+// programmatic tree is still under ~50 lines and stays grep-able in
+// a single file. The migration to file-based routes is the v0.0.21
+// pre-Phase-1 housekeeping pass — at that point /bgp, /flow, /pcap
+// will have multiplied the count past the readability threshold.
+//
+// Why no auth-router yet: Phase 0 exit-gate criterion is "login →
+// dashboard renders live data". Route guards / role-based lazy
+// chunks are Phase 5 (RBAC) work.
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -64,11 +73,46 @@ const netqlRoute = createRoute({
   component: NetQLPage,
 });
 
+const canariesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/canaries",
+  component: CanariesPage,
+});
+
+const canaryDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/canaries/$id",
+  component: CanaryDetailPage,
+});
+
+const slosRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/slos",
+  component: SLOsPage,
+});
+
+const workspacesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/workspaces",
+  component: WorkspacesPage,
+});
+
+const annotationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/annotations",
+  component: AnnotationsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   dashboardRoute,
   netqlRoute,
+  canariesRoute,
+  canaryDetailRoute,
+  slosRoute,
+  workspacesRoute,
+  annotationsRoute,
 ]);
 
 const router = createRouter({ routeTree });

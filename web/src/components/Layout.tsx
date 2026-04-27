@@ -8,11 +8,33 @@ import type { ReactNode } from "react";
 //
 // How: a plain flex column. Routes render inside <Outlet/> from the
 // root route; this component just wraps them with the persistent
-// chrome.
+// chrome. The nav is a flat list of <Link> elements so TanStack
+// Router's active-route highlighting works without any extra state.
 //
-// Why a single-file shell: keeps v0.0.14 scaffolding tight. When the
-// nav grows past four items we'll split the bar into its own file
-// and add a sidebar — but we don't pre-build that.
+// Why a single-file shell: with seven nav items the bar is still a
+// readable single line on desktop and an honest horizontal scroll on
+// mobile. When the v1 cut adds /bgp, /flow, /pcap, /correlation we
+// move to a sidebar — not before. Pre-building a sidebar for routes
+// that don't exist is dead code, and dead code is the most expensive
+// kind of code in a codebase that's heading into acquisition
+// diligence.
+
+interface NavItem {
+  to: string;
+  label: string;
+  exact?: boolean;
+}
+
+const NAV: NavItem[] = [
+  { to: "/dashboard", label: "Dashboard" },
+  { to: "/canaries", label: "Canaries" },
+  { to: "/slos", label: "SLOs" },
+  { to: "/workspaces", label: "Workspaces" },
+  { to: "/annotations", label: "Annotations" },
+  { to: "/netql", label: "netql" },
+  { to: "/login", label: "Login", exact: true },
+];
+
 export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col">
@@ -24,29 +46,18 @@ export function Layout({ children }: { children: ReactNode }) {
           >
             NetSite
           </Link>
-          <nav className="flex gap-4 text-sm text-zinc-400">
-            <Link
-              to="/dashboard"
-              className="hover:text-zinc-100"
-              activeOptions={{ exact: false }}
-              activeProps={{ className: "text-zinc-100" }}
-            >
-              Dashboard
-            </Link>
-            <Link
-              to="/netql"
-              className="hover:text-zinc-100"
-              activeProps={{ className: "text-zinc-100" }}
-            >
-              netql
-            </Link>
-            <Link
-              to="/login"
-              className="hover:text-zinc-100"
-              activeProps={{ className: "text-zinc-100" }}
-            >
-              Login
-            </Link>
+          <nav className="flex gap-4 text-sm text-zinc-400 overflow-x-auto">
+            {NAV.map((n) => (
+              <Link
+                key={n.to}
+                to={n.to}
+                className="hover:text-zinc-100 whitespace-nowrap"
+                activeOptions={n.exact ? { exact: true } : { exact: false }}
+                activeProps={{ className: "text-zinc-100" }}
+              >
+                {n.label}
+              </Link>
+            ))}
           </nav>
         </div>
       </header>
@@ -56,7 +67,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <footer className="border-t border-zinc-800 px-4 py-3 text-xs text-zinc-500">
         <div className="mx-auto max-w-6xl flex items-center justify-between">
           <span>NetSite — self-hosted network observability</span>
-          <span className="font-mono">v0.0.14</span>
+          <span className="font-mono">v0.0.18</span>
         </div>
       </footer>
     </div>

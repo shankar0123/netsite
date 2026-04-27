@@ -1,7 +1,7 @@
 {
   "name": "netsite-web",
   "private": true,
-  "version": "0.0.14",
+  "version": "0.0.18",
   "type": "module",
   "description": "NetSite control-plane web shell. React 19 + TanStack Router + TanStack Query + Tailwind v4 + shadcn/ui + visx + Recharts + MapLibre GL JS. Built into web/dist/ and embedded into ns-controlplane via go:embed.",
   "scripts": {

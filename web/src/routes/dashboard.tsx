@@ -22,7 +22,10 @@ import {
 // Why three cards rather than a full split-pane: this is the
 // scaffold. Once Tasks 0.22 (netql) and 0.23 (workspaces) are wired
 // into the UI, the dashboard becomes a workspace renderer; the
-// cards here are the placeholder.
+// cards here are the placeholder. v0.0.18 wires the "View all"
+// links to the new /canaries, /slos, /workspaces, /annotations
+// surfaces — the dashboard is still a snapshot, but each card now
+// gestures at where the deeper view lives.
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -82,7 +85,7 @@ export function DashboardPage() {
 
         <Card
           title={`Canary tests (${testsQ.data?.length ?? "—"})`}
-          link={{ to: "/dashboard", text: "View all" }}
+          link={{ to: "/canaries", text: "View all" }}
         >
           {testsQ.isPending ? (
             <Loading />
@@ -109,7 +112,10 @@ export function DashboardPage() {
           )}
         </Card>
 
-        <Card title={`SLOs (${slosQ.data?.length ?? "—"})`}>
+        <Card
+          title={`SLOs (${slosQ.data?.length ?? "—"})`}
+          link={{ to: "/slos", text: "View all" }}
+        >
           {slosQ.isPending ? (
             <Loading />
           ) : slosQ.isError ? (
