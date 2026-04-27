@@ -305,6 +305,21 @@ func (s *Server) Handler() http.Handler {
 	return s.httpSrv.Handler
 }
 
+// SetHandler replaces the http.Server's outermost handler. The
+// canonical use is composing the API surface with an embedded SPA
+// in cmd/ns-controlplane: the caller takes Handler(), wraps it with
+// a router that delegates /v1/* to the API and everything else to
+// the SPA, and writes the result back via SetHandler.
+//
+// Why expose a setter rather than accept a wrapper at construction:
+// the embed-vs-not decision belongs in the binary, not the api
+// package — keeping api free of web/embed coupling lets us reuse it
+// from ns-pop / ns-bgp for their own admin endpoints later without
+// dragging in a frontend dependency.
+func (s *Server) SetHandler(h http.Handler) {
+	s.httpSrv.Handler = h
+}
+
 // TLSEnabled reports whether the server will bind via
 // ListenAndServeTLS. Useful for tests + boot-time logging.
 func (s *Server) TLSEnabled() bool { return s.tlsEnabled }

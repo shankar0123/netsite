@@ -1,0 +1,31 @@
+/* Copyright 2026 Shankar Reddy. BSL 1.1. See LICENSE. */
+
+/* Tailwind v4 imports the entire CSS contract from one line. The rest
+   of this file holds NetSite-specific tokens that don't have a tidy
+   Tailwind utility yet. */
+
+@import "tailwindcss";
+
+/* Theme tokens. Dark-first by design (CLAUDE.md frontend §); the
+   light-mode pass lands when a customer asks for it. */
+:root {
+  --color-bg: #0a0a0c;
+  --color-fg: #f4f4f5;
+  --color-accent: #38bdf8; /* sky-400 — borrowed from CertSpotter precedent */
+  --font-sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  font-family: var(--font-sans);
+}
+
+code,
+pre,
+.font-mono {
+  font-family: var(--font-mono);
+}

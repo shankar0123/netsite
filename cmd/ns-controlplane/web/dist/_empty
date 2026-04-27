@@ -1,0 +1,2 @@
+# Placeholder so //go:embed web/dist works before `pnpm build` runs.
+# Replaced by Vite output (`pnpm build` in ../web/) at deploy time.

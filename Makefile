@@ -13,7 +13,7 @@
 # development, CI, and release tagging. Anything CI does should be
 # expressible as `make <target>`.
 
-.PHONY: build test test-short test-integration lint vet fmt run-controlplane run-pop run-controlplane-tls dev-tls clean help
+.PHONY: build build-web embed-web test test-short test-integration lint vet fmt run-controlplane run-pop run-controlplane-tls dev-tls clean help
 
 # Version inputs. Override on the command line for tagged releases:
 #   make build VERSION=v0.0.1
@@ -28,10 +28,21 @@ LDFLAGS := -X github.com/shankar0123/netsite/pkg/version.Version=$(VERSION) \
 help: ## Print this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-build: ## Build all binaries with version metadata injected.
+build: ## Build all binaries with version metadata injected. Skips frontend build.
 	go build -ldflags "$(LDFLAGS)" -o ns ./cmd/ns
 	go build -ldflags "$(LDFLAGS)" -o ns-controlplane ./cmd/ns-controlplane
 	go build -ldflags "$(LDFLAGS)" -o ns-pop ./cmd/ns-pop
+
+build-web: ## Build the React shell into web/dist/ via Vite.
+	@command -v pnpm >/dev/null || { echo "pnpm is required (https://pnpm.io). On macOS: brew install pnpm."; exit 1; }
+	cd web && pnpm install --frozen-lockfile && pnpm build
+
+embed-web: build-web ## Build frontend then copy web/dist/ into the embed location for go build to pick up.
+	rm -rf cmd/ns-controlplane/web/dist
+	mkdir -p cmd/ns-controlplane/web/dist
+	cp -R web/dist/. cmd/ns-controlplane/web/dist/
+
+build-all: embed-web build ## Build frontend + all binaries with the React shell embedded.
 
 test: ## Run the test suite with the race detector and coverage.
 	go test -race -coverprofile=coverage.out ./...

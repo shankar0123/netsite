@@ -35,8 +35,10 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -239,6 +241,22 @@ func run(_ []string) int {
 		logger.Error("api server build failed", slog.Any("err", err))
 		return exitServerBuild
 	}
+
+	// Wrap the API server's handler so the React shell at / and
+	// /assets/* gets served alongside the /v1/* API surface.
+	// Anything matching /v1/ or /metrics is delegated to the API;
+	// everything else (including the SPA fallback) is served by
+	// webHandler(). Done after api.New so the API's middleware
+	// stack still sits between the wrapper and the route table.
+	apiInner := srv.Handler()
+	web := webHandler()
+	srv.SetHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/") || r.URL.Path == "/v1" || r.URL.Path == "/metrics" {
+			apiInner.ServeHTTP(w, r)
+			return
+		}
+		web.ServeHTTP(w, r)
+	}))
 
 	logger.Info("serving",
 		slog.String("addr", addr),

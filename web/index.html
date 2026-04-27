@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NetSite</title>
+    <meta
+      name="description"
+      content="NetSite — self-hosted network observability"
+    />
+    <!--
+      System fonts (Inter for UI, JetBrains Mono for monospace) are
+      pulled via @import in src/styles.css. We deliberately don't
+      embed them here so the offline / air-gap deployment works:
+      the fonts ship inside the binary via Vite's asset pipeline.
+    -->
+  </head>
+  <body class="bg-zinc-950 text-zinc-100 antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
