@@ -28,9 +28,10 @@ LDFLAGS := -X github.com/shankar0123/netsite/pkg/version.Version=$(VERSION) \
 help: ## Print this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-build: ## Build the ns CLI and ns-controlplane with version metadata injected.
+build: ## Build all binaries with version metadata injected.
 	go build -ldflags "$(LDFLAGS)" -o ns ./cmd/ns
 	go build -ldflags "$(LDFLAGS)" -o ns-controlplane ./cmd/ns-controlplane
+	go build -ldflags "$(LDFLAGS)" -o ns-pop ./cmd/ns-pop
 
 test: ## Run the test suite with the race detector and coverage.
 	go test -race -coverprofile=coverage.out ./...
@@ -57,9 +58,11 @@ run-controlplane: build ## Run ns-controlplane against a NETSITE_CONTROLPLANE_DB
 	NETSITE_OTEL_INSECURE="$${NETSITE_OTEL_INSECURE:-true}" \
 	./ns-controlplane
 
-run-pop: ## Run ns-pop (not yet implemented; Task 0.17).
-	@echo "ns-pop not yet implemented (Task 0.17). See PROJECT_STATE.md."
-	@exit 1
+run-pop: build ## Run ns-pop with NETSITE_POP_CONFIG pointing at a YAML.
+	NETSITE_POP_CONFIG="$${NETSITE_POP_CONFIG:-deploy/compose/pop.example.yaml}" \
+	NETSITE_OTEL_OTLP_ENDPOINT="$${NETSITE_OTEL_OTLP_ENDPOINT:-localhost:4317}" \
+	NETSITE_OTEL_INSECURE="$${NETSITE_OTEL_INSECURE:-true}" \
+	./ns-pop
 
 clean: ## Remove build artifacts.
 	rm -f ns ns-controlplane ns-pop coverage.out coverage.html

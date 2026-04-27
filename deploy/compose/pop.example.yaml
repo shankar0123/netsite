@@ -1,0 +1,37 @@
+# Example POP config for `make run-pop` against the local compose stack.
+#
+# What: a minimal YAML the ns-pop binary reads at boot. Defines the POP
+#       identity, the NATS URL it publishes to, and a list of canary
+#       tests.
+# How:  popagent.LoadConfig parses this file via go.yaml.in/yaml/v3 and
+#       turns each entry under tests: into a canary.Test.
+# Why:  developer convenience — running ns-pop locally otherwise needs
+#       you to write a YAML by hand. Replace example.com with whatever
+#       you want to canary; the file is bind-mounted, not built in.
+
+pop_id: pop-dev-local
+nats_url: nats://localhost:4222
+
+tests:
+  - id: tst-example-https
+    tenant_id: tnt-default
+    kind: http
+    target: https://example.com/
+    interval: 30s
+    timeout: 5s
+    method: GET
+    expected_status: "200-299"
+
+  - id: tst-example-tls
+    tenant_id: tnt-default
+    kind: tls
+    target: example.com:443
+    interval: 60s
+    timeout: 5s
+
+  - id: tst-example-dns
+    tenant_id: tnt-default
+    kind: dns
+    target: example.com
+    interval: 30s
+    timeout: 3s
