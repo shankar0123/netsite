@@ -12,10 +12,6 @@
 // On the Change Date, the rights granted in this License terminate and
 // you are granted rights under the Change License instead.
 
-// Package middleware holds stdlib net/http middleware used by every
-// NetSite HTTP server (control plane, POP debug surfaces, RUM
-// ingestion). Each piece is a `func(http.Handler) http.Handler`
-// composer so callers wrap with whatever order they want.
 package middleware
 
 import (

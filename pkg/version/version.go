@@ -12,12 +12,6 @@
 // On the Change Date, the rights granted in this License terminate and
 // you are granted rights under the Change License instead.
 
-// Package version exposes build-time metadata for the NetSite binaries.
-//
-// The exported variables are intentionally writable so the Go linker can
-// populate them via -ldflags at build time. The Makefile injects values;
-// `go run` and unsigned local builds fall back to the defaults defined
-// here.
 package version
 
 import "fmt"

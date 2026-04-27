@@ -12,20 +12,6 @@
 // On the Change Date, the rights granted in this License terminate and
 // you are granted rights under the Change License instead.
 
-// Package api is the HTTP surface of the NetSite control plane.
-//
-// What: a stdlib `net/http` server with the canonical NetSite middleware
-// stack (logging → recovery → OTel) and an explicit route table. No
-// third-party HTTP framework — architecture invariant in CLAUDE.md.
-//
-// How: New() builds a *Server from a Config. Run(ctx) blocks until ctx
-// is canceled, then performs a 30-second graceful shutdown. Routes are
-// registered against an http.ServeMux at construction time; adding a
-// new route is a single mux.Handle call.
-//
-// Why a struct (not a free `func ListenAndServe`): tests need to
-// construct an isolated server, point it at a httptest.Server-equivalent,
-// and exercise it. A struct gives the tests a handle.
 package api
 
 import (
