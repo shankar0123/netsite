@@ -19,7 +19,7 @@
 openapi: "3.1.0"
 info:
   title: NetSite Control Plane API
-  version: "0.0.11"
+  version: "0.0.13"
   description: |
     The NetSite control plane HTTP surface. All endpoints are under
     `/v1/`; breaking changes ship as `/v2/` and run side-by-side with
@@ -58,6 +58,8 @@ tags:
     description: Saved-view bundles. A workspace pins a list of views and gives the bundle a name; opening it later restores the page state.
   - name: share
     description: Public read-only access to shared workspaces via short slug.
+  - name: annotations
+    description: Operator-pinned notes scoped to a (canary | pop | test, scope_id, timestamp) tuple. Immutable; correct typos by deleting + recreating.
 
 paths:
   /v1/health:
@@ -536,6 +538,89 @@ paths:
               schema: { $ref: "#/components/schemas/Workspace" }
         "404": { description: not found or expired }
 
+  /v1/annotations:
+    get:
+      tags: [annotations]
+      operationId: listAnnotations
+      summary: List annotations
+      description: |
+        Filter via query string: `scope`, `scope_id`, `from`, `to`,
+        `limit`. `from`/`to` are RFC3339 timestamps. RBAC:
+        annotations:read.
+      parameters:
+        - { name: scope, in: query, schema: { type: string, enum: [canary, pop, test] } }
+        - { name: scope_id, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000 } }
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Annotation" }
+        "400": { description: invalid query }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+    post:
+      tags: [annotations]
+      operationId: createAnnotation
+      summary: Create a new annotation
+      description: |
+        RBAC: annotations:write. Annotations are immutable once
+        created — no PATCH endpoint. Author is the authenticated
+        user; tenant scoping is automatic.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnnotationCreate" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Annotation" }
+        "400": { description: invalid body }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+
+  /v1/annotations/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [annotations]
+      operationId: getAnnotation
+      summary: Get one annotation by id
+      description: |
+        RBAC: annotations:read.
+      responses:
+        "200":
+          description: annotation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Annotation" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: not found }
+    delete:
+      tags: [annotations]
+      operationId: deleteAnnotation
+      summary: Delete one annotation by id
+      description: |
+        RBAC: annotations:write. The deletion is itself a fact in
+        the audit trail — there is no soft-delete recovery.
+      responses:
+        "204": { description: deleted }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: not found }
+
 components:
   schemas:
     Health:
@@ -836,6 +921,37 @@ components:
           description: When the share slug stops resolving. NULL means no expiry.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+
+    AnnotationCreate:
+      type: object
+      required: [scope, scope_id, at]
+      properties:
+        scope:
+          type: string
+          enum: [canary, pop, test]
+        scope_id:
+          type: string
+          maxLength: 200
+          example: tst-foo
+        at:
+          type: string
+          format: date-time
+          description: When the annotated event happened (UTC).
+        body_md:
+          type: string
+          maxLength: 4000
+          description: Markdown body. Empty string is allowed.
+
+    Annotation:
+      allOf:
+        - $ref: "#/components/schemas/AnnotationCreate"
+        - type: object
+          required: [id, tenant_id, author_id, created_at]
+          properties:
+            id: { type: string, example: ann-abcdef01 }
+            tenant_id: { type: string }
+            author_id: { type: string }
+            created_at: { type: string, format: date-time }
 
   securitySchemes:
     sessionCookie:

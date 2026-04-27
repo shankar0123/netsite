@@ -41,6 +41,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/shankar0123/netsite/pkg/annotations"
 	"github.com/shankar0123/netsite/pkg/api/middleware"
 	"github.com/shankar0123/netsite/pkg/slo"
 	promstore "github.com/shankar0123/netsite/pkg/store/prometheus"
@@ -73,6 +74,8 @@ type Config struct {
 	SLOStore *slo.Store
 	// Workspaces backs /v1/workspaces and /v1/share/{slug}. Required.
 	Workspaces *workspaces.Service
+	// Annotations backs /v1/annotations. Required.
+	Annotations *annotations.Service
 
 	// TLSCertFile / TLSKeyFile point at PEM-encoded certificate and
 	// private key files for TLS-listen mode. When both are set the
@@ -147,6 +150,9 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Workspaces == nil {
 		return nil, errors.New("api: nil Workspaces")
 	}
+	if cfg.Annotations == nil {
+		return nil, errors.New("api: nil Annotations")
+	}
 	tlsEnabled, err := validateTLSConfig(&cfg)
 	if err != nil {
 		return nil, err
@@ -200,6 +206,14 @@ func New(cfg Config) (*Server, error) {
 	mux.Handle("POST /v1/workspaces/{id}/share", middleware.Authorize("workspaces:write", shareWorkspaceHandler(cfg.Workspaces)))
 	mux.Handle("DELETE /v1/workspaces/{id}/share", middleware.Authorize("workspaces:write", unshareWorkspaceHandler(cfg.Workspaces)))
 	mux.Handle("GET /v1/share/{slug}", resolveShareHandler(cfg.Workspaces))
+
+	// Annotations. Pinned operator notes scoped to (canary | pop |
+	// test, scope_id, timestamp). RBAC: viewer+ for read,
+	// operator+ for write. Immutable by design — no PATCH endpoint.
+	mux.Handle("GET /v1/annotations", middleware.Authorize("annotations:read", listAnnotationsHandler(cfg.Annotations)))
+	mux.Handle("POST /v1/annotations", middleware.Authorize("annotations:write", createAnnotationHandler(cfg.Annotations)))
+	mux.Handle("GET /v1/annotations/{id}", middleware.Authorize("annotations:read", getAnnotationHandler(cfg.Annotations)))
+	mux.Handle("DELETE /v1/annotations/{id}", middleware.Authorize("annotations:write", deleteAnnotationHandler(cfg.Annotations)))
 
 	// Prometheus metrics. Public on the dev stack; in production this
 	// is reachable only inside the cluster network.

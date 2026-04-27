@@ -26,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/shankar0123/netsite/pkg/annotations"
 	"github.com/shankar0123/netsite/pkg/auth"
 	"github.com/shankar0123/netsite/pkg/slo"
 	"github.com/shankar0123/netsite/pkg/workspaces"
@@ -71,6 +72,7 @@ func TestNew_Validations(t *testing.T) {
 	ch := stubCH{}
 	store := slo.NewStore(nil)
 	wks := workspaces.NewService(workspaces.NewStore(nil), workspaces.NewStore(nil), workspaces.Options{})
+	ann := annotations.NewService(annotations.NewStore(nil), annotations.NewStore(nil), annotations.Options{})
 
 	// All tests below request AllowPlaintext=true so the TLS
 	// validator doesn't reject them; the per-field validations are
@@ -80,17 +82,18 @@ func TestNew_Validations(t *testing.T) {
 		cfg     Config
 		wantSub string
 	}{
-		{"empty Addr", Config{Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, AllowPlaintext: true}, "Addr"},
-		{"nil Pool", Config{Addr: ":0", Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, AllowPlaintext: true}, "Pool"},
-		{"nil Logger", Config{Addr: ":0", Pool: pool, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, AllowPlaintext: true}, "Logger"},
-		{"nil PromReg", Config{Addr: ":0", Pool: pool, Logger: logger, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, AllowPlaintext: true}, "PromReg"},
-		{"nil Auth", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, CH: ch, SLOStore: store, Workspaces: wks, AllowPlaintext: true}, "Auth"},
-		{"nil CH", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, SLOStore: store, Workspaces: wks, AllowPlaintext: true}, "CH"},
-		{"nil SLOStore", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, Workspaces: wks, AllowPlaintext: true}, "SLOStore"},
-		{"nil Workspaces", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, AllowPlaintext: true}, "Workspaces"},
-		{"missing TLS opt-in", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks}, "TLS"},
-		{"half TLS config (cert only)", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, TLSCertFile: "/tmp/cert.pem"}, "TLSCertFile"},
-		{"half TLS config (key only)", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, TLSKeyFile: "/tmp/key.pem"}, "TLSCertFile"},
+		{"empty Addr", Config{Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, Annotations: ann, AllowPlaintext: true}, "Addr"},
+		{"nil Pool", Config{Addr: ":0", Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, Annotations: ann, AllowPlaintext: true}, "Pool"},
+		{"nil Logger", Config{Addr: ":0", Pool: pool, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, Annotations: ann, AllowPlaintext: true}, "Logger"},
+		{"nil PromReg", Config{Addr: ":0", Pool: pool, Logger: logger, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, Annotations: ann, AllowPlaintext: true}, "PromReg"},
+		{"nil Auth", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, CH: ch, SLOStore: store, Workspaces: wks, Annotations: ann, AllowPlaintext: true}, "Auth"},
+		{"nil CH", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, SLOStore: store, Workspaces: wks, Annotations: ann, AllowPlaintext: true}, "CH"},
+		{"nil SLOStore", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, Workspaces: wks, Annotations: ann, AllowPlaintext: true}, "SLOStore"},
+		{"nil Workspaces", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Annotations: ann, AllowPlaintext: true}, "Workspaces"},
+		{"nil Annotations", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, AllowPlaintext: true}, "Annotations"},
+		{"missing TLS opt-in", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, Annotations: ann}, "TLS"},
+		{"half TLS config (cert only)", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, Annotations: ann, TLSCertFile: "/tmp/cert.pem"}, "TLSCertFile"},
+		{"half TLS config (key only)", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store, Workspaces: wks, Annotations: ann, TLSKeyFile: "/tmp/key.pem"}, "TLSCertFile"},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -121,6 +124,7 @@ func TestNew_OK(t *testing.T) {
 		CH:             stubCH{},
 		SLOStore:       slo.NewStore(nil),
 		Workspaces:     workspaces.NewService(workspaces.NewStore(nil), workspaces.NewStore(nil), workspaces.Options{}),
+		Annotations:    annotations.NewService(annotations.NewStore(nil), annotations.NewStore(nil), annotations.Options{}),
 		AllowPlaintext: true, // explicit opt-in per CLAUDE.md A11
 	}
 	s, err := New(cfg)
@@ -152,6 +156,7 @@ func TestNew_TLSConfig(t *testing.T) {
 		CH:          stubCH{},
 		SLOStore:    slo.NewStore(nil),
 		Workspaces:  workspaces.NewService(workspaces.NewStore(nil), workspaces.NewStore(nil), workspaces.Options{}),
+		Annotations: annotations.NewService(annotations.NewStore(nil), annotations.NewStore(nil), annotations.Options{}),
 		TLSCertFile: "/tmp/never-read.pem",
 		TLSKeyFile:  "/tmp/never-read.key",
 	}
@@ -168,14 +173,15 @@ func TestNew_TLSConfig(t *testing.T) {
 // the server runs in TLS mode and absent in plaintext mode.
 func TestNew_HSTSAppliedInTLSMode(t *testing.T) {
 	base := Config{
-		Addr:       "127.0.0.1:0",
-		Pool:       &pgxpool.Pool{},
-		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		PromReg:    prometheus.NewRegistry(),
-		Auth:       stubAuth{},
-		CH:         stubCH{},
-		SLOStore:   slo.NewStore(nil),
-		Workspaces: workspaces.NewService(workspaces.NewStore(nil), workspaces.NewStore(nil), workspaces.Options{}),
+		Addr:        "127.0.0.1:0",
+		Pool:        &pgxpool.Pool{},
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		PromReg:     prometheus.NewRegistry(),
+		Auth:        stubAuth{},
+		CH:          stubCH{},
+		SLOStore:    slo.NewStore(nil),
+		Workspaces:  workspaces.NewService(workspaces.NewStore(nil), workspaces.NewStore(nil), workspaces.Options{}),
+		Annotations: annotations.NewService(annotations.NewStore(nil), annotations.NewStore(nil), annotations.Options{}),
 	}
 	tlsCfg := base
 	tlsCfg.TLSCertFile = "/tmp/cert.pem"

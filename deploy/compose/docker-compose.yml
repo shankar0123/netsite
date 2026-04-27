@@ -122,6 +122,33 @@ services:
       timeout: 3s
       retries: 10
 
+  # Caddy fronts the host-running ns-controlplane with TLS so dev /
+  # demo paths get HTTPS without the operator managing certs.
+  # See docs/security.md "Demo and dev paths"; CLAUDE.md A11.
+  #
+  # The `tls internal` directive in Caddyfile makes Caddy issue an
+  # internal-CA-signed cert. The first request from the operator's
+  # browser shows a one-time trust prompt for that CA; subsequent
+  # requests are clean. Production deploys swap `tls internal` for
+  # `tls /etc/caddy/cert.pem /etc/caddy/key.pem` or a real ACME
+  # config — the rest of the file is unchanged.
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: netsite-caddy
+    restart: unless-stopped
+    ports:
+      - "${NETSITE_CADDY_HTTPS_PORT:-8443}:443"
+      - "${NETSITE_CADDY_HTTP_PORT:-8081}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    extra_hosts:
+      # Lets `host.docker.internal` resolve on Linux (it's already
+      # there on Mac/Win Docker Desktop). Caddy uses this to reach
+      # the ns-controlplane running on the host's :8080.
+      - "host.docker.internal:host-gateway"
+
   grafana:
     image: grafana/grafana:11.3.0
     container_name: netsite-grafana
@@ -146,3 +173,5 @@ volumes:
   nats-data:
   prometheus-data:
   grafana-data:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,4 @@
+# mkcert-issued localhost certs land here. They are local-only and
+# must NEVER land in git: anyone with a copy can MITM your dev box.
+*.pem
+!.gitignore

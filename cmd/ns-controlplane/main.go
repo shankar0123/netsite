@@ -40,6 +40,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/shankar0123/netsite/pkg/annotations"
 	"github.com/shankar0123/netsite/pkg/api"
 	"github.com/shankar0123/netsite/pkg/auth"
 	"github.com/shankar0123/netsite/pkg/canary/ingest"
@@ -185,6 +186,10 @@ func run(_ []string) int {
 	wksStore := workspaces.NewStore(pool)
 	wksSvc := workspaces.NewService(wksStore, wksStore, workspaces.Options{})
 
+	// Annotations (pinned operator notes per Task 0.24).
+	annStore := annotations.NewStore(pool)
+	annSvc := annotations.NewService(annStore, annStore, annotations.Options{})
+
 	addr := envOr("NETSITE_CONTROLPLANE_HTTP_ADDR", ":8080")
 	// TLS posture per CLAUDE.md A11: every operator-facing network
 	// surface defaults to TLS 1.3+. Operators set the cert/key pair
@@ -194,6 +199,28 @@ func run(_ []string) int {
 	tlsCert := os.Getenv("NETSITE_CONTROLPLANE_TLS_CERT_FILE")
 	tlsKey := os.Getenv("NETSITE_CONTROLPLANE_TLS_KEY_FILE")
 	allowPlaintext := os.Getenv("NETSITE_CONTROLPLANE_ALLOW_PLAINTEXT") == "true"
+
+	// Dev AutoTLS: when set + binding to loopback, mint an
+	// ephemeral self-signed cert and use it. Refuses non-loopback
+	// addresses (defence against accidental prod use). The cert
+	// thumbprint is logged so operators can pin curl --cacert /
+	// browser cert-trust dialogs to it.
+	if os.Getenv("NETSITE_DEV_AUTOTLS") == "true" {
+		if tlsCert != "" || tlsKey != "" {
+			logger.Error("NETSITE_DEV_AUTOTLS=true conflicts with TLSCertFile/TLSKeyFile; pick one")
+			return exitServerBuild
+		}
+		res, err := AutoTLS(addr)
+		if err != nil {
+			logger.Error("dev autotls failed", slog.Any("err", err))
+			return exitServerBuild
+		}
+		tlsCert, tlsKey = res.CertFile, res.KeyFile
+		logger.Warn("DEV-AUTOTLS engaged — using ephemeral self-signed cert (loopback only)",
+			slog.String("cert_file", res.CertFile),
+			slog.String("sha256_fingerprint", res.SHA256Fingerprint),
+			slog.String("note", "do not use this in production — production deploys must supply real certs"))
+	}
 	srv, err := api.New(api.Config{
 		Addr:           addr,
 		Pool:           pool,
@@ -203,6 +230,7 @@ func run(_ []string) int {
 		CH:             chConn,
 		SLOStore:       sloStore,
 		Workspaces:     wksSvc,
+		Annotations:    annSvc,
 		TLSCertFile:    tlsCert,
 		TLSKeyFile:     tlsKey,
 		AllowPlaintext: allowPlaintext,

@@ -129,6 +129,47 @@ trust assumption in the relevant algorithm doc AND add the row to
 the table above. "I forgot" is not an acceptable answer in
 acquisition diligence.
 
+## Demo and dev paths
+
+The trajectory-wide TLS bar applies to demos and local dev too. We
+ship three paths so an operator never has a reason to cut the
+corner:
+
+| Path | When to use | How |
+|---|---|---|
+| `NETSITE_DEV_AUTOTLS=true` | One-off "show this in 5 minutes" demo on the operator's laptop. No cert management, no install. | `make run-controlplane-tls` binds `127.0.0.1:8443` with an in-memory ECDSA-P256 self-signed cert valid for 30 days. The boot log emits the cert SHA-256 fingerprint so `curl --cacert` or browser cert-trust dialogs can pin to it. **Refuses to bind non-loopback addresses** (defence against accidental prod use); the matrix in `cmd/ns-controlplane/devtls.go:isLoopbackAddr` is the gate. |
+| `make dev-tls` (mkcert) | Daily local dev, especially when the React shell is running on a different port and needs cookie / SameSite to work cleanly. | One-time `mkcert -install` puts a local CA into the operator's trust store; `make dev-tls` issues `localhost.pem` + `localhost-key.pem` under `deploy/dev-certs/` (gitignored). Every dev session thereafter is browser-clean HTTPS. |
+| Caddy sidecar in compose | Compose-stack demos, integration tests, anything pretending to be production but on a laptop. | `deploy/compose/Caddyfile` runs `tls internal` against `localhost:443`. Compose maps :443 → :8443 on the host. The controlplane binds plaintext on 127.0.0.1:8080 (with `NETSITE_CONTROLPLANE_ALLOW_PLAINTEXT=true`); Caddy fronts it with HSTS and an internal-CA cert. Production swap-in is one `tls` directive away. |
+
+### Frontend dev ergonomics
+
+The React shell (Task 0.25) ships a Vite config with `server.https`
+reading the same mkcert pair, so a `pnpm dev` session at
+`https://localhost:5173` talks to `https://localhost:8443` without
+mixed-content / SameSite issues. The session cookie's `Secure=true`
+and the (future) cross-origin `SameSite=None` work because both
+ends speak TLS.
+
+### RUM SDK localhost carve-out (Phase 3)
+
+The RUM SDK refuses non-`https://` ingest endpoints by default.
+The single carve-out is the browser-standard "secure context"
+definition: `http://localhost` and `http://127.0.0.1` (and `[::1]`)
+are accepted with a Warn emitted to the JS console. Any other
+scheme/host requires HTTPS — there is no general-purpose
+`insecure: true` flag.
+
+### Public-internet demo (Phase 1+)
+
+A canonical demo URL (TBD: `demo.netsite.dev` or similar) on a
+small VM with Caddy + Let's Encrypt. The 90-second demo features
+(PCAP replay, swing detection, NL incident query, status pages)
+all run there so prospects can see the product live without
+spinning up their own deploy. The infrastructure pattern is just
+"Caddy + ns-controlplane + ns-pop + Postgres + ClickHouse + NATS";
+documented in `docs/demo.md` (lands when there's product worth
+showing).
+
 ## Out of scope (today)
 
 These are not yet enforced; tracked in PROJECT_STATE.md §16 (Known

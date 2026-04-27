@@ -1,0 +1,61 @@
+# Caddyfile — TLS-terminating reverse proxy for the dev / demo
+# compose stack. See docs/security.md "Demo and dev paths" and
+# CLAUDE.md architecture invariant A11.
+#
+# Two virtual hosts:
+#
+#   localhost:443       — primary developer-facing endpoint with
+#                         TLS via Caddy's internal CA. The browser
+#                         shows a one-time trust prompt; thereafter
+#                         every request is clean HTTPS.
+#
+#   :80 redirect        — anything hitting plain HTTP gets a 308 to
+#                         the HTTPS form. This matches what
+#                         production deploys behind Caddy already do
+#                         and keeps the dev path honest.
+#
+# The upstream is `host.docker.internal:8080` because ns-controlplane
+# runs on the host (via `make run-controlplane`), not inside the
+# compose stack. Once we ship a `ns-controlplane` container image,
+# swap the upstream for the service name (e.g. `controlplane:8080`).
+#
+# Production swap-in: replace `tls internal` with one of:
+#   tls /etc/caddy/cert.pem /etc/caddy/key.pem
+#   tls admin@example.com  (ACME / Let's Encrypt)
+
+{
+	# Caddy admin API only on loopback inside the container.
+	admin off
+
+	# Deterministic logging so dev sessions and CI replays match.
+	log {
+		output stdout
+		format console
+	}
+}
+
+# HTTPS endpoint. Self-issued cert via Caddy's internal CA. Hit
+# https://localhost:8443 from the host (compose maps :443 → :8443).
+localhost:443 {
+	tls internal
+
+	# HSTS: tells browsers to refuse plaintext for the next year.
+	# `preload` is intentionally omitted; preload submission is the
+	# operator's call per HSTS spec.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	# Reverse proxy to the host-running ns-controlplane.
+	reverse_proxy host.docker.internal:8080 {
+		# Preserve client headers the API uses for tenant scoping.
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
+
+# Plaintext → 308 redirect to HTTPS. Same upstream, but Caddy never
+# reads the body before redirecting so this stays cheap.
+:80 {
+	redir https://{host}{uri} 308
+}
