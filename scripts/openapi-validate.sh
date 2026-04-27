@@ -16,5 +16,11 @@ if ! command -v npx >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "Linting api/openapi.yaml with @redocly/cli..."
-npx --yes @redocly/cli@latest lint api/openapi.yaml
+# Pin the redocly CLI version. Floating @latest caused a silent
+# strictness bump between the v0.0.6 push (which lint-passed) and the
+# v0.0.7 push (which suddenly failed on rules that hadn't existed in
+# the same form before). Same lesson as golangci-lint: pin both the
+# CLI and any rule version that gates CI.
+REDOCLY_VERSION="${REDOCLY_VERSION:-1.34.5}"
+echo "Linting api/openapi.yaml with @redocly/cli@${REDOCLY_VERSION}..."
+npx --yes "@redocly/cli@${REDOCLY_VERSION}" lint api/openapi.yaml

@@ -277,6 +277,7 @@ paths:
         schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
     get:
       tags: [tests]
+      operationId: listTestResults
       summary: List the most recent canary results for a test
       description: |
         Returns up to `limit` rows ordered by observed_at DESC. RBAC:
@@ -291,12 +292,14 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/CanaryResult" }
+        "400": { description: bad request }
         "401": { description: unauthorized }
         "403": { description: forbidden }
 
   /v1/slos:
     get:
       tags: [slos]
+      operationId: listSLOs
       summary: List SLOs in the caller's tenant
       description: |
         RBAC: slos:read (viewer+).
@@ -308,8 +311,11 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/SLO" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
     post:
       tags: [slos]
+      operationId: createSLO
       summary: Create a new SLO
       description: |
         RBAC: slos:write (operator+). Inputs are validated against the
@@ -338,19 +344,29 @@ paths:
         schema: { type: string }
     get:
       tags: [slos]
+      operationId: getSLO
+      summary: Get one SLO by id
+      description: |
+        RBAC: slos:read (viewer+).
       responses:
         "200":
           description: slo
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SLO" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
         "404": { description: not found }
     delete:
       tags: [slos]
+      operationId: deleteSLO
+      summary: Delete one SLO by id
       description: |
-        RBAC: slos:write.
+        RBAC: slos:write (operator+).
       responses:
         "204": { description: deleted }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
         "404": { description: not found }
 
 components:
