@@ -459,7 +459,7 @@ sequenceDiagram
     participant Cons as ingest consumer
     participant CH as ClickHouse
     participant Eval as SLO evaluator
-    participant Note as WebhookNotifier
+    participant Hook as WebhookNotifier
     participant PG as Postgres
     participant UI as Browser dashboard
 
@@ -471,16 +471,16 @@ sequenceDiagram
     NATS-->>Cons: deliver message
     Cons->>CH: INSERT INTO canary_results
     Cons->>NATS: ACK
-    Note over Eval: 30s later: evaluator tick
+    note over Eval: 30s later: evaluator tick
     Eval->>CH: countIf(error_kind = '') / count(*) per window
     CH-->>Eval: rows
     Eval->>Eval: burn-rate per window pair
     alt threshold exceeded + cooldown elapsed
-        Eval->>Note: BurnEvent
-        Note->>Note: HTTPS POST to slo.NotifierURL
+        Eval->>Hook: BurnEvent
+        Hook->>Hook: HTTPS POST to slo.NotifierURL
     end
     Eval->>PG: UPSERT slo_state
-    Note over UI: TanStack Query staleTime ≈ 30s
+    note over UI: TanStack Query staleTime ≈ 30s
     UI->>UI: refetch /v1/slos<br/>card re-renders with new objective_pct
 ```
 
