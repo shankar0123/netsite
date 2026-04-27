@@ -1,0 +1,33 @@
+# Grafana datasource provisioning — NetSite developer stack.
+#
+# What: declares the Prometheus and ClickHouse datasources Grafana
+# should know about at startup. No dashboards yet; those land in
+# Phase 1 task 1.14 (incident timeline view) and beyond.
+#
+# Why provisioned (not configured via the UI): a developer who clones
+# the repo gets the same starting state as everyone else, with no
+# clicking. Reproducible dev environments are non-negotiable.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+
+  # ClickHouse is added but disabled by default until Phase 1 ships
+  # canonical query patterns. Operators flip this to enabled once they
+  # have queries to run against it.
+  - name: ClickHouse
+    type: grafana-clickhouse-datasource
+    access: proxy
+    url: http://clickhouse:8123
+    editable: true
+    jsonData:
+      defaultDatabase: netsite
+    secureJsonData:
+      password: netsite

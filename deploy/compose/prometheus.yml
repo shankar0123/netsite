@@ -1,0 +1,32 @@
+# Prometheus scrape config for the NetSite developer stack.
+#
+# What: tells Prometheus which targets to scrape and how often.
+# How:  static_configs (no service discovery in dev — the compose stack
+#       has fixed hostnames).
+# Why static targets in dev: the cluster is small enough that explicit
+# targets are clearer than the moving parts of file_sd or http_sd.
+# Production deployments use Helm-templated service discovery instead.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    deployment: netsite-dev
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:9464"]
+
+  # The control plane and POPs expose /metrics on their main HTTP port.
+  # When `make run-controlplane` is wired up (Task 0.12), uncomment.
+  # - job_name: ns-controlplane
+  #   static_configs:
+  #     - targets: ["host.docker.internal:8080"]
+  # - job_name: ns-pop
+  #   static_configs:
+  #     - targets: ["host.docker.internal:9100"]

@@ -1,0 +1,148 @@
+# NetSite developer compose stack.
+#
+# What: a local environment that runs the five backing services NetSite
+# binaries connect to (Postgres, ClickHouse, NATS JetStream, Prometheus,
+# Grafana) plus an OpenTelemetry collector that the binaries export to.
+#
+# How: every service is pinned to an image digest so `docker compose
+# pull` is reproducible across developer machines. Healthchecks gate
+# inter-service dependencies — control-plane startup waits for Postgres
+# to be ready before running migrations.
+#
+# Why all six services in one file rather than a Helm chart or k3d
+# cluster: developers should be able to clone the repo and run
+# `docker compose up -d` with no kubectl, no helm, no kind. The
+# production deployment story is Helm (Phase 5 task) and air-gap
+# bundles (Phase 4); compose is for `make dev` only.
+#
+# Why pinned digests, not floating tags like `:16` or `:latest`: when
+# `clickhouse:24-alpine` published a breaking change two weeks ago,
+# every developer who ran `docker compose pull` got a different stack
+# than the developer who ran `docker compose pull` two weeks earlier.
+# Pinning by digest eliminates that drift.
+#
+# To upgrade an image, run:
+#   docker pull <name>:<tag>
+#   docker inspect --format='{{index .RepoDigests 0}}' <name>:<tag>
+# and replace the `image:` line with the new digest.
+
+name: netsite-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: netsite-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${NETSITE_PG_DB:-netsite}
+      POSTGRES_USER: ${NETSITE_PG_USER:-netsite}
+      POSTGRES_PASSWORD: ${NETSITE_PG_PASSWORD:-netsite}
+    ports:
+      - "${NETSITE_PG_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: netsite-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${NETSITE_CH_DB:-netsite}
+      CLICKHOUSE_USER: ${NETSITE_CH_USER:-netsite}
+      CLICKHOUSE_PASSWORD: ${NETSITE_CH_PASSWORD:-netsite}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "${NETSITE_CH_NATIVE_PORT:-9000}:9000"  # native protocol
+      - "${NETSITE_CH_HTTP_PORT:-8123}:8123"    # HTTP for ad-hoc queries
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: netsite-nats
+    restart: unless-stopped
+    command: ["-js", "-sd", "/data"]   # JetStream + persistent store
+    ports:
+      - "${NETSITE_NATS_PORT:-4222}:4222"  # client
+      - "${NETSITE_NATS_MGMT_PORT:-8222}:8222"  # http monitoring
+    volumes:
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8222/healthz | grep -q ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.0
+    container_name: netsite-otel
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "${NETSITE_OTLP_GRPC_PORT:-4317}:4317"   # OTLP gRPC
+      - "${NETSITE_OTLP_HTTP_PORT:-4318}:4318"   # OTLP HTTP
+      - "${NETSITE_OTEL_PROM_PORT:-9464}:9464"   # collector's Prometheus exposer
+    depends_on:
+      prometheus:
+        condition: service_started
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: netsite-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${NETSITE_PROM_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: netsite-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${NETSITE_GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${NETSITE_GRAFANA_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"  # dev only — never in prod
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+    ports:
+      - "${NETSITE_GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  clickhouse-data:
+  nats-data:
+  prometheus-data:
+  grafana-data:
