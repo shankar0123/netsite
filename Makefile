@@ -33,9 +33,16 @@ build: ## Build all binaries with version metadata injected. Skips frontend buil
 	go build -ldflags "$(LDFLAGS)" -o ns-controlplane ./cmd/ns-controlplane
 	go build -ldflags "$(LDFLAGS)" -o ns-pop ./cmd/ns-pop
 
-build-web: ## Build the React shell into web/dist/ via Vite.
+build-web: ## Build the React shell into web/dist/ via Vite. Uses frozen lockfile if web/pnpm-lock.yaml exists; regenerates one on first run.
 	@command -v pnpm >/dev/null || { echo "pnpm is required (https://pnpm.io). On macOS: brew install pnpm."; exit 1; }
-	cd web && pnpm install --frozen-lockfile && pnpm build
+	@if [ -f web/pnpm-lock.yaml ]; then \
+		echo "→ using existing web/pnpm-lock.yaml (frozen)"; \
+		cd web && pnpm install --frozen-lockfile && pnpm build; \
+	else \
+		echo "WARN: web/pnpm-lock.yaml missing — running unlocked install to generate one."; \
+		echo "      After build completes, commit web/pnpm-lock.yaml so future builds are reproducible."; \
+		cd web && pnpm install && pnpm build; \
+	fi
 
 embed-web: build-web ## Build frontend then copy web/dist/ into the embed location for go build to pick up.
 	rm -rf cmd/ns-controlplane/web/dist

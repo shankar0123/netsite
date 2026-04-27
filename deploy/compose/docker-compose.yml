@@ -70,12 +70,29 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+      # ClickHouse on Docker Desktop / ARM Macs runs an emulation layer
+      # for the alpine image and the entrypoint init phase (CREATE USER
+      # + CREATE DATABASE) takes a noisy minute or two during which
+      # libnuma's get_mempolicy() syscalls are denied (`get_mempolicy:
+      # Operation not permitted` lines in the log are this and are
+      # benign). Without a start_period the healthcheck retries ×
+      # interval = 50s ceiling expires before the real server has bound
+      # 8123 and the container goes unhealthy. start_period gives the
+      # init phase room to finish before the healthcheck is allowed to
+      # fail; once init completes 8123 binds within seconds.
+      start_period: 90s
 
   nats:
     image: nats:2.10-alpine
     container_name: netsite-nats
     restart: unless-stopped
-    command: ["-js", "-sd", "/data"]   # JetStream + persistent store
+    # `-m 8222` is required: without it NATS does not bind the HTTP
+    # monitoring port, the healthcheck below gets connection-refused
+    # forever, and the container reports unhealthy even though
+    # JetStream on 4222 is fine. The port is exposed via `ports:`
+    # below — but exposing the port doesn't make NATS listen on it;
+    # only this flag does.
+    command: ["-js", "-sd", "/data", "-m", "8222"]
     ports:
       - "${NETSITE_NATS_PORT:-4222}:4222"  # client
       - "${NETSITE_NATS_MGMT_PORT:-8222}:8222"  # http monitoring
