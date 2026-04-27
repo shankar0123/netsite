@@ -18,15 +18,18 @@ is mostly facts).
 
 ## Build
 
-Requires Go 1.22+.
+Requires Go 1.25+ (driven by `github.com/jackc/pgx/v5`'s minimum). Docker
+is required for `make test-integration` (testcontainers spins up a real
+Postgres for the migration runner tests).
 
 ```sh
 make build
 ./ns version
 ```
 
-`make test` runs the test suite with the race detector. `make lint` runs
-`golangci-lint`. `make vet` runs `go vet`.
+`make test` runs the unit test suite with the race detector. `make
+test-integration` runs the integration suite (Docker required). `make
+lint` runs `golangci-lint`. `make vet` runs `go vet`.
 
 ## Status of components
 

@@ -13,7 +13,7 @@
 # development, CI, and release tagging. Anything CI does should be
 # expressible as `make <target>`.
 
-.PHONY: build test test-short lint vet fmt run-controlplane run-pop clean help
+.PHONY: build test test-short test-integration lint vet fmt run-controlplane run-pop clean help
 
 # Version inputs. Override on the command line for tagged releases:
 #   make build VERSION=v0.0.1
@@ -36,6 +36,9 @@ test: ## Run the test suite with the race detector and coverage.
 
 test-short: ## Run unit tests only, no race detector. Fast feedback loop.
 	go test -short ./...
+
+test-integration: ## Run integration tests (-tags integration). Requires Docker for testcontainers.
+	go test -race -tags integration ./...
 
 vet: ## Run go vet.
 	go vet ./...
