@@ -1,0 +1,1 @@
+sum(rate(netsite_http_requests_total[5m]))

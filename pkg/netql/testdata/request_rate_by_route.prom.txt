@@ -1,0 +1,1 @@
+sum by (route) (rate(netsite_http_requests_total{status="500"}[1h]))

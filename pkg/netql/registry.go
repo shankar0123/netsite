@@ -69,6 +69,7 @@ type MetricSpec struct {
 	// Selector is the SQL expression that computes the metric value
 	// in ClickHouse (e.g., `quantile(0.95)(latency_ms)`). The
 	// translator wraps this in `<selector> AS <metric_name>`.
+	// Used only when Backend == BackendClickHouse.
 	Selector string
 	// Source is the underlying table for ClickHouse-backed metrics.
 	// All v0.0.9 metrics share `canary_results`; later metrics can
@@ -76,11 +77,44 @@ type MetricSpec struct {
 	Source string
 	// GroupBy maps netql group identifiers (e.g., "pop") to the
 	// underlying column name (e.g., "pop_id"). The translator
-	// emits `<column> AS <netql_id>`.
+	// emits `<column> AS <netql_id>`. For Prometheus metrics the
+	// "column" name is the underlying label.
 	GroupBy map[string]string
 	// Filter maps netql filter identifiers to FieldSpecs. Identifiers
 	// not in this map are rejected by the type-checker.
 	Filter map[string]FieldSpec
+
+	// Prom is the Prometheus translation shape; used only when
+	// Backend == BackendPrometheus. Keeping it as a sub-struct rather
+	// than scattering Prom* fields onto the parent keeps the
+	// ClickHouse and Prometheus translators easy to reason about
+	// independently.
+	Prom *PromSpec
+}
+
+// PromSpec describes how a metric translates to PromQL. We support
+// two shapes in v0.0.10:
+//
+//  1. Counter / gauge with a rate or sum-over-time outer wrap
+//     (Function == "rate" | "increase" | "" for raw gauge).
+//  2. Histogram quantile (Function == "histogram_quantile") — the
+//     translator emits the canonical `histogram_quantile(q, sum by
+//     (le, ...) (rate(<bucket>[<range>])))` shape.
+//
+// More shapes are reachable from this struct (just add fields); we
+// only ship two now because that's what the v0.0.10 corpus needs.
+type PromSpec struct {
+	// MetricName is the Prometheus metric (e.g., netsite_http_requests_total).
+	// For histograms, point at the `_bucket` series.
+	MetricName string
+	// Aggregator is the outer aggregation operator (sum, avg, max, min).
+	Aggregator string
+	// Function is the inner range function applied per-series before
+	// aggregation. "rate", "increase", or "" for none (raw gauge).
+	Function string
+	// Quantile, when set, switches the translator into the
+	// histogram_quantile shape. Range 0 < q < 1.
+	Quantile float64
 }
 
 // Registry is the lookup container for MetricSpec. We keep it as a
@@ -181,6 +215,52 @@ func DefaultRegistry() *Registry {
 		Source:      "canary_results",
 		GroupBy:     canaryGroupBy,
 		Filter:      canaryFilter,
+	})
+
+	// Prometheus-backed metrics. v0.0.10 ships two — request_rate
+	// (counter rate over the control plane's HTTP handler) and
+	// request_latency_p95 (histogram quantile over the same
+	// handler). Both are emitted by the otelhttp middleware that
+	// `cmd/ns-controlplane` already wires in.
+	apiLabels := map[string]string{
+		"route":  "route",
+		"method": "method",
+		"status": "status",
+	}
+	apiFilter := map[string]FieldSpec{
+		"route":  {Kind: FieldString, Column: "route"},
+		"method": {Kind: FieldString, Column: "method"},
+		"status": {Kind: FieldString, Column: "status"},
+	}
+	r.Register(&MetricSpec{
+		Name:        "request_rate",
+		Backend:     BackendPrometheus,
+		Description: "Per-second rate of NetSite control-plane HTTP requests.",
+		GroupBy:     apiLabels,
+		Filter:      apiFilter,
+		Prom: &PromSpec{
+			MetricName: "netsite_http_requests_total",
+			Aggregator: "sum",
+			Function:   "rate",
+		},
+	})
+	r.Register(&MetricSpec{
+		Name:        "request_latency_p95",
+		Backend:     BackendPrometheus,
+		Description: "p95 control-plane HTTP request latency in seconds.",
+		// p95 has no `error` dimension to carve out, so grouping by
+		// status doesn't make physical sense here — drop it.
+		GroupBy: map[string]string{
+			"route":  "route",
+			"method": "method",
+		},
+		Filter: apiFilter,
+		Prom: &PromSpec{
+			MetricName: "netsite_http_request_duration_seconds_bucket",
+			Aggregator: "sum",
+			Function:   "rate",
+			Quantile:   0.95,
+		},
 	})
 	return r
 }

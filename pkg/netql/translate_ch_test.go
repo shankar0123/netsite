@@ -34,26 +34,29 @@ import (
 // drift; the cost is one extra file per query, paid once per
 // canonical example.
 func TestTranslateCH_Corpus(t *testing.T) {
-	matches, err := filepath.Glob("testdata/*.netql")
+	// Glob the .ch.sql snapshots and pair each with its .netql source.
+	// We deliberately don't iterate .netql files because some of them
+	// (Prometheus-backed) have only a .prom.txt snapshot.
+	snaps, err := filepath.Glob("testdata/*.ch.sql")
 	if err != nil {
 		t.Fatalf("glob: %v", err)
 	}
-	if len(matches) == 0 {
-		t.Fatal("no testdata/*.netql files found")
+	if len(snaps) == 0 {
+		t.Fatal("no testdata/*.ch.sql files found")
 	}
 	reg := DefaultRegistry()
-	for _, srcPath := range matches {
-		srcPath := srcPath
-		name := strings.TrimSuffix(filepath.Base(srcPath), ".netql")
+	for _, snapPath := range snaps {
+		snapPath := snapPath
+		name := strings.TrimSuffix(filepath.Base(snapPath), ".ch.sql")
 		t.Run(name, func(t *testing.T) {
+			srcPath := filepath.Join("testdata", name+".netql")
 			src, err := os.ReadFile(srcPath)
 			if err != nil {
-				t.Fatalf("read source: %v", err)
+				t.Fatalf("read source %s: %v", srcPath, err)
 			}
-			snapPath := filepath.Join("testdata", name+".ch.sql")
 			snap, err := os.ReadFile(snapPath)
 			if err != nil {
-				t.Fatalf("read snapshot %s: %v", snapPath, err)
+				t.Fatalf("read snapshot: %v", err)
 			}
 			q, err := Parse(strings.TrimSpace(string(src)))
 			if err != nil {

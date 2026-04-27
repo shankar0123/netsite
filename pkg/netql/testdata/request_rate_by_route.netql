@@ -1,0 +1,1 @@
+request_rate by route where status = '500' over 1h
