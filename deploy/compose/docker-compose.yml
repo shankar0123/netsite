@@ -88,7 +88,18 @@ services:
       retries: 10
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.115.0
+    # 0.149.0 chosen 2026-04-27 after 0.115.0 was deleted from Docker Hub
+    # (manifest 404). otel/opentelemetry-collector-contrib's tag retention
+    # window is short — when the collector ships a new minor version,
+    # older tags eventually disappear. We use a minimal pipeline (otlp
+    # receiver, batch processor, debug + prometheus exporters); if any of
+    # those got a config-breaking change between 0.115 and 0.149 the
+    # failure will surface on `docker compose up` (the collector exits 1
+    # with a config-validation error) and the fix is to update
+    # otel-collector.yaml. The bump rationale lives here so the next
+    # operator hitting a 404 on the registry knows it's a tag-retention
+    # issue, not a NetSite issue.
+    image: otel/opentelemetry-collector-contrib:0.149.0
     container_name: netsite-otel
     restart: unless-stopped
     command: ["--config=/etc/otelcol/config.yaml"]
