@@ -48,8 +48,15 @@ type sloRequest struct {
 	Enabled           *bool          `json:"enabled,omitempty"`
 }
 
-// sloResponse is what /v1/slos returns. Mirrors slo.SLO + a
-// computed `created_at`.
+// sloResponse is what /v1/slos returns. Mirrors slo.SLO + an
+// optional `state` block populated from the slo_state table when
+// the evaluator has ticked at least once.
+//
+// State is nullable on the wire: an SLO that has never been
+// evaluated returns `"state": null`, and the React client renders
+// that as "pending first evaluation". An SLO with state.last_status
+// = "ok" is a different (better) operational answer than "we have
+// no idea yet" — the wire format must distinguish them.
 type sloResponse struct {
 	ID                string         `json:"id"`
 	TenantID          string         `json:"tenant_id"`
@@ -64,6 +71,16 @@ type sloResponse struct {
 	NotifierURL       string         `json:"notifier_url"`
 	Enabled           bool           `json:"enabled"`
 	CreatedAt         time.Time      `json:"created_at"`
+	State             *sloStateBlock `json:"state"`
+}
+
+// sloStateBlock is the JSON-rendered slo_state row. Nil when the
+// SLO has never been evaluated.
+type sloStateBlock struct {
+	LastEvaluatedAt time.Time  `json:"last_evaluated_at"`
+	LastStatus      string     `json:"last_status"`
+	LastBurnRate    float64    `json:"last_burn_rate"`
+	LastAlertedAt   *time.Time `json:"last_alerted_at"`
 }
 
 func toSLOResponse(s slo.SLO) sloResponse {
@@ -73,10 +90,35 @@ func toSLOResponse(s slo.SLO) sloResponse {
 		ObjectivePct: s.ObjectivePct, WindowSeconds: s.WindowSeconds,
 		FastBurnThreshold: s.FastBurnThreshold, SlowBurnThreshold: s.SlowBurnThreshold,
 		NotifierURL: s.NotifierURL, Enabled: s.Enabled, CreatedAt: s.CreatedAt,
+		State: nil,
 	}
 }
 
+// toSLOWithStateResponse is toSLOResponse + the optional state
+// block. Used by the LIST handler in v0.0.23+.
+func toSLOWithStateResponse(s slo.SLOWithState) sloResponse {
+	r := toSLOResponse(s.SLO)
+	if s.HasState {
+		var alerted *time.Time
+		if !s.State.LastAlertedAt.IsZero() {
+			t := s.State.LastAlertedAt
+			alerted = &t
+		}
+		r.State = &sloStateBlock{
+			LastEvaluatedAt: s.State.LastEvaluatedAt,
+			LastStatus:      string(s.State.LastStatus),
+			LastBurnRate:    s.State.LastBurnRate,
+			LastAlertedAt:   alerted,
+		}
+	}
+	return r
+}
+
 // listSLOsHandler returns GET /v1/slos. Requires `slos:read`.
+//
+// Uses ListSLOsWithState so each row carries the latest evaluator
+// state (burn rate, status, last evaluated). One round-trip for
+// the operator-facing dashboard rather than N+1 follow-up fetches.
 func listSLOsHandler(store *slo.Store) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, ok := middleware.UserFromContext(r.Context())
@@ -84,14 +126,14 @@ func listSLOsHandler(store *slo.Store) http.Handler {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		out, err := store.ListSLOs(r.Context(), u.TenantID)
+		out, err := store.ListSLOsWithState(r.Context(), u.TenantID)
 		if err != nil {
 			http.Error(w, "list slos: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		resp := make([]sloResponse, len(out))
 		for i, s := range out {
-			resp[i] = toSLOResponse(s)
+			resp[i] = toSLOWithStateResponse(s)
 		}
 		writeJSON(w, http.StatusOK, resp)
 	})

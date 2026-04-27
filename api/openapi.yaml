@@ -19,7 +19,7 @@
 openapi: "3.1.0"
 info:
   title: NetSite Control Plane API
-  version: "0.0.19"
+  version: "0.0.23"
   description: |
     The NetSite control plane HTTP surface. All endpoints are under
     `/v1/`; breaking changes ship as `/v2/` and run side-by-side with
@@ -971,11 +971,53 @@ components:
       allOf:
         - $ref: "#/components/schemas/SLORequest"
         - type: object
-          required: [id, tenant_id, created_at]
+          required: [id, tenant_id, created_at, state]
           properties:
             id: { type: string }
             tenant_id: { type: string }
             created_at: { type: string, format: date-time }
+            state:
+              description: |
+                Most recent evaluator state for this SLO. Null when
+                the SLO has not yet been evaluated (newly created;
+                the evaluator's tick hasn't reached it yet). Per
+                v0.0.23 the LIST endpoint joins this in so the UI
+                can render burn rate + status without an N+1 fetch.
+              oneOf:
+                - $ref: "#/components/schemas/SLOState"
+                - type: "null"
+
+    SLOState:
+      type: object
+      required: [last_evaluated_at, last_status, last_burn_rate]
+      properties:
+        last_evaluated_at:
+          type: string
+          format: date-time
+          description: Server time of the most recent evaluator tick for this SLO.
+        last_status:
+          type: string
+          enum: [unknown, no_data, ok, slow_burn, fast_burn]
+          description: |
+            Worst-of (fast_burn over slow_burn) classification at
+            the most recent tick. ok when SLI is meeting objective;
+            no_data when the evaluator window contained zero rows.
+        last_burn_rate:
+          type: number
+          format: double
+          description: |
+            (1 - SLI) / (1 - objective) at the most recent tick.
+            Burn rate >= fast_burn_threshold (default 14.4) for
+            both 1h and 5m windows triggers fast_burn; the same
+            with slow_burn_threshold (default 6.0) over 6h+30m
+            triggers slow_burn.
+        last_alerted_at:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            Server time of the most recent BurnEvent fired for this
+            SLO. Null when no alert has fired (either never burnt
+            or alert cooldown has not yet elapsed).
 
     View:
       type: object

@@ -160,6 +160,102 @@ func (s *Store) ListSLOs(ctx context.Context, tenantID string) ([]SLO, error) {
 	return out, nil
 }
 
+// ListSLOsWithState returns every SLO in the tenant joined with its
+// most recent evaluator State row. SLOs that have never been
+// evaluated produce a row with HasState=false and a zero-value
+// State; the caller renders them as "pending first evaluation".
+//
+// We LEFT JOIN slo_state into the same query rather than expose a
+// /v1/slos/{id}/state endpoint because the LIST page is the
+// canonical place an operator wants to see "which SLO is burning?"
+// — N+1 round-trips for that view would balloon p95 time on a
+// fleet of dozens of SLOs. The single-SLO state lookup remains
+// available via GetState() for callers that want it (notifier wiring,
+// future detail-page sparklines, etc.).
+//
+// Why not fold this into ListSLOs(): callers that don't care about
+// state (e.g. the netql translator's metric registry) shouldn't
+// pay for the join. Two methods, one fast path each.
+func (s *Store) ListSLOsWithState(ctx context.Context, tenantID string) ([]SLOWithState, error) {
+	rows, err := s.pool.Query(ctx, `
+        SELECT s.id, s.tenant_id, s.name, s.description, s.sli_kind, s.sli_filter,
+               s.objective_pct, s.window_seconds,
+               s.fast_burn_threshold, s.slow_burn_threshold,
+               s.notifier_url, s.enabled, s.created_at,
+               st.last_evaluated_at, st.last_status, st.last_burn_rate, st.last_alerted_at
+        FROM slos s
+        LEFT JOIN slo_state st ON st.slo_id = s.id
+        WHERE s.tenant_id = $1
+        ORDER BY s.created_at DESC`,
+		tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("slo: list with state: %w", err)
+	}
+	defer rows.Close()
+	out := []SLOWithState{}
+	for rows.Next() {
+		var (
+			row         SLOWithState
+			rawFilter   []byte
+			lastEvalAt  *time.Time
+			lastStatus  *string
+			lastBurn    *float64
+			lastAlertAt *time.Time
+		)
+		if err := rows.Scan(
+			&row.SLO.ID, &row.SLO.TenantID, &row.SLO.Name, &row.SLO.Description,
+			(*string)(&row.SLO.SLIKind), &rawFilter,
+			&row.SLO.ObjectivePct, &row.SLO.WindowSeconds,
+			&row.SLO.FastBurnThreshold, &row.SLO.SlowBurnThreshold,
+			&row.SLO.NotifierURL, &row.SLO.Enabled, &row.SLO.CreatedAt,
+			&lastEvalAt, &lastStatus, &lastBurn, &lastAlertAt,
+		); err != nil {
+			return nil, fmt.Errorf("slo: scan with state: %w", err)
+		}
+		if len(rawFilter) > 0 {
+			_ = json.Unmarshal(rawFilter, &row.SLO.SLIFilter)
+		}
+		// HasState is true iff the LEFT JOIN produced a row (any of
+		// the joined columns is non-nil; we test last_evaluated_at
+		// which is NOT NULL on the slo_state table).
+		if lastEvalAt != nil {
+			row.HasState = true
+			row.State = State{
+				SLOID:           row.SLO.ID,
+				LastEvaluatedAt: *lastEvalAt,
+				LastStatus:      Status(deref(lastStatus)),
+				LastBurnRate:    derefFloat(lastBurn),
+			}
+			if lastAlertAt != nil {
+				row.State.LastAlertedAt = *lastAlertAt
+			}
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("slo: rows err: %w", err)
+	}
+	return out, nil
+}
+
+// deref returns the string a points at, or "" if a is nil.
+// Tiny helper used only by ListSLOsWithState's nullable LEFT JOIN
+// columns.
+func deref(a *string) string {
+	if a == nil {
+		return ""
+	}
+	return *a
+}
+
+// derefFloat returns the float64 a points at, or 0 if a is nil.
+func derefFloat(a *float64) float64 {
+	if a == nil {
+		return 0
+	}
+	return *a
+}
+
 // ListEnabled returns all enabled SLOs across every tenant. The
 // evaluator uses this once per tick.
 func (s *Store) ListEnabled(ctx context.Context) ([]SLO, error) {

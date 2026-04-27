@@ -102,6 +102,24 @@ export function listTests(): Promise<Test[]> {
 
 // ---- SLOs -----------------------------------------------------------
 
+// Mirrors pkg/slo.Status. String union so a future status added on
+// the backend (e.g. an explicit "saturated" tier) fails closed at
+// the type-checker rather than silently rendering as the default
+// colour.
+export type SLOStatus =
+  | "unknown"
+  | "no_data"
+  | "ok"
+  | "slow_burn"
+  | "fast_burn";
+
+export interface SLOState {
+  last_evaluated_at: string;
+  last_status: SLOStatus;
+  last_burn_rate: number;
+  last_alerted_at: string | null;
+}
+
 export interface SLO {
   id: string;
   tenant_id: string;
@@ -112,6 +130,11 @@ export interface SLO {
   objective_pct: number;
   window_seconds: number;
   enabled: boolean;
+  // Most recent evaluator state. Null when the evaluator has not
+  // yet ticked for this SLO (newly created). Per v0.0.23 the LIST
+  // endpoint joins this in so the /slos UI can render burn rate +
+  // status without an N+1 fetch.
+  state: SLOState | null;
 }
 
 export function listSLOs(): Promise<SLO[]> {

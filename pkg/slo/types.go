@@ -79,6 +79,24 @@ type State struct {
 	LastAlertedAt   time.Time
 }
 
+// SLOWithState pairs an SLO definition with its most recent
+// evaluator State (if any). Returned by ListSLOsWithState so the
+// LIST endpoint can render burn rate + status in one round-trip
+// rather than N+1 fetches against `/v1/slos/{id}/state` (an
+// endpoint we deliberately did not introduce — see the rationale
+// in pkg/slo/store.go ListSLOsWithState).
+//
+// HasState distinguishes "never evaluated" (false) from "evaluated
+// with status=ok" (true, LastStatus=StatusOK). Without this flag
+// the JSON-rendered State block looks identical for the two cases:
+// LastStatus="ok" and LastStatus="" both serialize the same way
+// once the zero-value State default is applied.
+type SLOWithState struct {
+	SLO
+	State    State
+	HasState bool
+}
+
 // BurnEvent is what the Notifier receives when an SLO crosses into a
 // burning state. Operators wire this into PagerDuty, Slack, or
 // whatever incident-management surface they use.
