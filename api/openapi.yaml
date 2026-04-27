@@ -19,7 +19,7 @@
 openapi: "3.1.0"
 info:
   title: NetSite Control Plane API
-  version: "0.0.17"
+  version: "0.0.19"
   description: |
     The NetSite control plane HTTP surface. All endpoints are under
     `/v1/`; breaking changes ship as `/v2/` and run side-by-side with
@@ -62,6 +62,8 @@ tags:
     description: Operator-pinned notes scoped to a (canary | pop | test, scope_id, timestamp) tuple. Immutable; correct typos by deleting + recreating.
   - name: netql
     description: Compile + execute netql DSL queries. translate is the "show me the SQL" reveal; execute runs against the metric's home backend (ClickHouse today; Prometheus arrives Phase 1).
+  - name: anomaly
+    description: Read-only access to the anomaly detector's cached verdicts. The control-plane evaluator goroutine writes the rows on a 5-minute tick (NETSITE_ANOMALY_INTERVAL) by pulling a per-test latency_p95 series from canary_results, running pkg/anomaly.Detect, and upserting the verdict. Calendar-suppression CRUD + on-demand evaluate land in v0.0.20.
 
 paths:
   /v1/health:
@@ -689,6 +691,82 @@ paths:
         "422": { description: translation error }
         "501": { description: PromQL execution not yet implemented }
 
+  /v1/anomaly/state:
+    get:
+      tags: [anomaly]
+      operationId: listAnomalyState
+      summary: List the latest anomaly verdicts for the caller's tenant
+      description: |
+        Returns one row per (test, metric) cached by the evaluator
+        goroutine. Empty array if the evaluator has not yet ticked
+        or no tests are enabled. RBAC: anomaly:read (viewer+).
+      responses:
+        "200":
+          description: cached verdicts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AnomalyVerdict" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+
+  /v1/anomaly/tests/{id}:
+    get:
+      tags: [anomaly]
+      operationId: getAnomalyForTest
+      summary: Latest anomaly verdict for a test (default metric latency_p95)
+      description: |
+        Convenience for the canary-detail page. Returns 404 when no
+        verdict has been cached yet for (tenant, test, latency_p95).
+        RBAC: anomaly:read.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+          description: Test ID (e.g. tst-https-api).
+      responses:
+        "200":
+          description: latest verdict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnomalyVerdict" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: no cached verdict }
+
+  /v1/anomaly/tests/{id}/{metric}:
+    get:
+      tags: [anomaly]
+      operationId: getAnomalyForTestMetric
+      summary: Latest anomaly verdict for a (test, metric) pair
+      description: |
+        Same as /v1/anomaly/tests/{id} but the metric is explicit
+        (latency_p95 or error_rate today; future kinds added without
+        a path schema change). RBAC: anomaly:read.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+          description: Test ID.
+        - in: path
+          name: metric
+          required: true
+          schema: { type: string, enum: [latency_p95, error_rate] }
+          description: Metric kind. Must match an enabled MetricKind in pkg/anomaly.
+      responses:
+        "200":
+          description: latest verdict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnomalyVerdict" }
+        "400": { description: missing test id or metric }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: no cached verdict }
+
 components:
   schemas:
     Health:
@@ -1037,6 +1115,77 @@ components:
           type: array
           items: {}
           description: Positional bind values for `sql`. The first is always the caller's tenant_id.
+
+    AnomalyVerdict:
+      type: object
+      required:
+        - tenant_id
+        - test_id
+        - metric
+        - method
+        - severity
+        - suppressed
+        - last_value
+        - forecast
+        - residual
+        - mad
+        - mad_units
+        - reason
+        - last_point_at
+        - evaluated_at
+      properties:
+        tenant_id:
+          type: string
+          description: Tenant the verdict belongs to.
+        test_id:
+          type: string
+          description: Test the series was sampled for.
+        metric:
+          type: string
+          enum: [latency_p95, error_rate]
+          description: Metric kind the verdict scored.
+        method:
+          type: string
+          enum: [holt_winters, seasonal_decompose, insufficient_data]
+          description: Which detector method the chooser picked. insufficient_data means the series fell below MinSamples (default 3*Period).
+        severity:
+          type: string
+          enum: [none, watch, anomaly, critical]
+          description: Severity classification based on |residual| / MAD against the configured thresholds.
+        suppressed:
+          type: boolean
+          description: True when a calendar window covered the latest point. Severity is reported even when suppressed; suppression only inhibits the would-be alert in v0.0.20+ notifier wiring.
+        last_value:
+          type: number
+          format: double
+          description: The most recent observed value in the series.
+        forecast:
+          type: number
+          format: double
+          description: Model's expectation for the latest point.
+        residual:
+          type: number
+          format: double
+          description: last_value − forecast. Signed.
+        mad:
+          type: number
+          format: double
+          description: Median absolute deviation of the fit residuals.
+        mad_units:
+          type: number
+          format: double
+          description: "abs(residual) / mad; 0 when mad is 0."
+        reason:
+          type: string
+          description: Human-readable explanation. Free-form prose from the detector.
+        last_point_at:
+          type: string
+          format: date-time
+          description: Timestamp of the latest series point (the one whose anomaly status is reported).
+        evaluated_at:
+          type: string
+          format: date-time
+          description: Server time at the moment the evaluator wrote this row.
 
   securitySchemes:
     sessionCookie:

@@ -42,6 +42,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/shankar0123/netsite/pkg/annotations"
+	"github.com/shankar0123/netsite/pkg/anomaly"
 	"github.com/shankar0123/netsite/pkg/api/middleware"
 	"github.com/shankar0123/netsite/pkg/netql"
 	"github.com/shankar0123/netsite/pkg/slo"
@@ -79,6 +80,10 @@ type Config struct {
 	Annotations *annotations.Service
 	// NetQLRegistry backs /v1/netql/{translate,execute}. Required.
 	NetQLRegistry *netql.Registry
+	// AnomalyStore backs /v1/anomaly/*. Required — the evaluator
+	// goroutine is the writer; these handlers are read-only over the
+	// cached verdicts.
+	AnomalyStore *anomaly.Store
 
 	// TLSCertFile / TLSKeyFile point at PEM-encoded certificate and
 	// private key files for TLS-listen mode. When both are set the
@@ -159,6 +164,9 @@ func New(cfg Config) (*Server, error) {
 	if cfg.NetQLRegistry == nil {
 		return nil, errors.New("api: nil NetQLRegistry")
 	}
+	if cfg.AnomalyStore == nil {
+		return nil, errors.New("api: nil AnomalyStore")
+	}
 	tlsEnabled, err := validateTLSConfig(&cfg)
 	if err != nil {
 		return nil, err
@@ -226,6 +234,13 @@ func New(cfg Config) (*Server, error) {
 	// execute is netql:execute because it consumes ClickHouse cycles.
 	mux.Handle("POST /v1/netql/translate", middleware.Authorize("netql:read", netqlTranslateHandler(cfg.NetQLRegistry)))
 	mux.Handle("POST /v1/netql/execute", middleware.Authorize("netql:execute", netqlExecuteHandler(cfg.NetQLRegistry, cfg.CH)))
+
+	// Anomaly detector verdicts. Read-only — the evaluator goroutine
+	// in cmd/ns-controlplane is the writer. v0.0.20 adds calendar-
+	// suppression CRUD + (optional) on-demand evaluate endpoint.
+	mux.Handle("GET /v1/anomaly/state", middleware.Authorize("anomaly:read", listAnomalyStateHandler(cfg.AnomalyStore)))
+	mux.Handle("GET /v1/anomaly/tests/{id}", middleware.Authorize("anomaly:read", getAnomalyForTestHandler(cfg.AnomalyStore)))
+	mux.Handle("GET /v1/anomaly/tests/{id}/{metric}", middleware.Authorize("anomaly:read", getAnomalyForTestMetricHandler(cfg.AnomalyStore)))
 
 	// Prometheus metrics. Public on the dev stack; in production this
 	// is reachable only inside the cluster network.

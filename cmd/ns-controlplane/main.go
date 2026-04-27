@@ -43,6 +43,7 @@ import (
 	"time"
 
 	"github.com/shankar0123/netsite/pkg/annotations"
+	"github.com/shankar0123/netsite/pkg/anomaly"
 	"github.com/shankar0123/netsite/pkg/api"
 	"github.com/shankar0123/netsite/pkg/auth"
 	"github.com/shankar0123/netsite/pkg/canary/ingest"
@@ -182,6 +183,33 @@ func run(_ []string) int {
 		}
 	}()
 
+	// Anomaly detector evaluator goroutine. Pulls a per-test
+	// latency_p95 series from ClickHouse on each tick (default 5m,
+	// overridable via NETSITE_ANOMALY_INTERVAL), runs Detect, and
+	// upserts the Verdict to anomaly_state. Skipped when disabled
+	// via NETSITE_ANOMALY_DISABLED=true (useful for ops who want to
+	// run the controlplane without the anomaly tick — e.g. during a
+	// ClickHouse maintenance window).
+	anomStore := anomaly.NewStore(pool)
+	if os.Getenv("NETSITE_ANOMALY_DISABLED") != "true" {
+		anomCfg := anomaly.EvaluatorConfig{
+			Interval: parseDurationOr("NETSITE_ANOMALY_INTERVAL", 5*time.Minute, logger),
+		}
+		anomSrc := anomaly.ClickHouseSeriesSource{Conn: chConn}
+		anomEval, err := anomaly.NewEvaluator(logger, anomStore, anomStore, anomSrc, anomCfg)
+		if err != nil {
+			logger.Error("anomaly evaluator build failed", slog.Any("err", err))
+			return exitServerBuild
+		}
+		go func() {
+			if err := anomEval.Run(ctx); err != nil {
+				logger.Error("anomaly evaluator stopped with error", slog.Any("err", err))
+			}
+		}()
+	} else {
+		logger.Warn("NETSITE_ANOMALY_DISABLED=true — anomaly evaluator goroutine NOT started")
+	}
+
 	// Workspaces (saved-view bundles per Task 0.23). Single concrete
 	// store satisfies both the Reader and Mutator interfaces; the
 	// service composes them with the production Clock + ID/slug
@@ -235,6 +263,7 @@ func run(_ []string) int {
 		Workspaces:     wksSvc,
 		Annotations:    annSvc,
 		NetQLRegistry:  netql.DefaultRegistry(),
+		AnomalyStore:   anomStore,
 		TLSCertFile:    tlsCert,
 		TLSKeyFile:     tlsKey,
 		AllowPlaintext: allowPlaintext,
@@ -279,4 +308,25 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// parseDurationOr returns the duration parsed from env[key]; on
+// missing/empty/parse-fail it returns def and logs at Warn so the
+// operator notices a typo (e.g. "5min" instead of "5m") rather than
+// silently getting the default.
+func parseDurationOr(key string, def time.Duration, logger *slog.Logger) time.Duration {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		logger.Warn("invalid duration env value; using default",
+			slog.String("key", key),
+			slog.String("value", v),
+			slog.String("default", def.String()),
+			slog.Any("err", err))
+		return def
+	}
+	return d
 }
