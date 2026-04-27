@@ -42,7 +42,10 @@ import (
 
 	"github.com/shankar0123/netsite/pkg/api"
 	"github.com/shankar0123/netsite/pkg/auth"
+	"github.com/shankar0123/netsite/pkg/canary/ingest"
 	"github.com/shankar0123/netsite/pkg/integrations/otel"
+	chstore "github.com/shankar0123/netsite/pkg/store/clickhouse"
+	natsstore "github.com/shankar0123/netsite/pkg/store/nats"
 	pgstore "github.com/shankar0123/netsite/pkg/store/postgres"
 	promstore "github.com/shankar0123/netsite/pkg/store/prometheus"
 	"github.com/shankar0123/netsite/pkg/version"
@@ -56,13 +59,17 @@ func main() {
 // tell which boot-phase failed without grepping. Treat these as a
 // stable contract: do not renumber.
 const (
-	exitOK            = 0
-	exitOTelSetup     = 2
-	exitMissingDSN    = 3
-	exitDBConnect     = 4
-	exitMigrate       = 5
-	exitServerBuild   = 6
-	exitServerRuntime = 7
+	exitOK             = 0
+	exitOTelSetup      = 2
+	exitMissingDSN     = 3
+	exitDBConnect      = 4
+	exitMigrate        = 5
+	exitServerBuild    = 6
+	exitServerRuntime  = 7
+	exitNATSConnect    = 8
+	exitJetStream      = 9
+	exitEnsureStream   = 10
+	exitClickHouseConn = 11
 )
 
 func run(_ []string) int {
@@ -109,6 +116,53 @@ func run(_ []string) int {
 	}
 
 	promReg := promstore.NewRegistry()
+
+	// NATS + JetStream + canary-results stream + ingest consumer.
+	// The consumer ingests POP-published results into ClickHouse on a
+	// goroutine in parallel with the HTTP server.
+	natsURL := envOr("NETSITE_CONTROLPLANE_NATS_URL", "nats://localhost:4222")
+	nc, err := natsstore.Connect(natsURL, "ns-controlplane")
+	if err != nil {
+		logger.Error("nats connect failed", slog.Any("err", err))
+		return exitNATSConnect
+	}
+	defer nc.Close()
+
+	js, err := natsstore.JetStream(nc)
+	if err != nil {
+		logger.Error("jetstream init failed", slog.Any("err", err))
+		return exitJetStream
+	}
+	if err := ingest.EnsureStream(js); err != nil {
+		logger.Error("ensure canary-results stream failed", slog.Any("err", err))
+		return exitEnsureStream
+	}
+
+	// ClickHouse for canary_results ingestion. The schema applier
+	// reuses pkg/store/clickhouse.Apply so a fresh deploy gets all
+	// embedded tables before the consumer starts writing.
+	chURL := envOr("NETSITE_CONTROLPLANE_CH_URL", "")
+	if chURL == "" {
+		logger.Error("NETSITE_CONTROLPLANE_CH_URL is required")
+		return exitClickHouseConn
+	}
+	chConn, err := chstore.Open(ctx, chURL)
+	if err != nil {
+		logger.Error("clickhouse connect failed", slog.Any("err", err))
+		return exitClickHouseConn
+	}
+	defer func() { _ = chConn.Close() }()
+	if err := chstore.Apply(ctx, chConn, chstore.Schema()); err != nil {
+		logger.Error("clickhouse schema apply failed", slog.Any("err", err))
+		return exitClickHouseConn
+	}
+
+	consumer := ingest.NewConsumer(logger, js, chConn)
+	go func() {
+		if err := consumer.Run(ctx); err != nil {
+			logger.Error("ingest consumer stopped with error", slog.Any("err", err))
+		}
+	}()
 
 	authSvc := auth.NewService(auth.NewRepo(pool), auth.Config{})
 

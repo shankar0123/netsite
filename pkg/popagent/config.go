@@ -62,6 +62,10 @@ type Config struct {
 
 	// Tests is the list of canary checks this POP runs.
 	Tests []TestDefinition `yaml:"tests"`
+
+	// Mesh, when present, generates additional HTTP tests against the
+	// peers' health URLs. See pkg/popagent/mesh.go.
+	Mesh MeshConfig `yaml:"mesh"`
 }
 
 // TestDefinition is the YAML representation of a canary.Test plus

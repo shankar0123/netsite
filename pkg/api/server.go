@@ -110,6 +110,19 @@ func New(cfg Config) (*Server, error) {
 	mux.Handle("POST /v1/auth/logout", logoutHandler(cfg.Auth))
 	mux.Handle("GET /v1/auth/whoami", whoamiHandler())
 
+	// Tests catalog. Per CLAUDE.md naming, /v1/<resource> plural.
+	// RBAC: tests:read for viewer+, tests:write for operator+.
+	mux.Handle("GET /v1/tests", middleware.Authorize("tests:read", listTestsHandler(cfg.Pool)))
+	mux.Handle("POST /v1/tests", middleware.Authorize("tests:write", createTestHandler(cfg.Pool)))
+	mux.Handle("GET /v1/tests/{id}", middleware.Authorize("tests:read", getTestHandler(cfg.Pool)))
+	mux.Handle("DELETE /v1/tests/{id}", middleware.Authorize("tests:write", deleteTestHandler(cfg.Pool)))
+
+	// POP roster. Same RBAC pattern.
+	mux.Handle("GET /v1/pops", middleware.Authorize("pops:read", listPopsHandler(cfg.Pool)))
+	mux.Handle("POST /v1/pops", middleware.Authorize("pops:write", createPopHandler(cfg.Pool)))
+	mux.Handle("GET /v1/pops/{id}", middleware.Authorize("pops:read", getPopHandler(cfg.Pool)))
+	mux.Handle("DELETE /v1/pops/{id}", middleware.Authorize("pops:write", deletePopHandler(cfg.Pool)))
+
 	// Prometheus metrics. Public on the dev stack; in production this
 	// is reachable only inside the cluster network.
 	if err := promstore.ExposeOn(mux, cfg.PromReg); err != nil {

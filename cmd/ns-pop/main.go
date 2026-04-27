@@ -128,6 +128,16 @@ func run(_ []string) int {
 		tests = append(tests, t)
 	}
 
+	// Append mesh-generated tests, if any. Skip self automatically.
+	mesh, err := popagent.GenerateMeshTests(cfg.Mesh, cfg.PopID)
+	if err != nil {
+		logger.Warn("mesh generation failed", slog.Any("err", err))
+	}
+	tests = append(tests, mesh...)
+	if len(mesh) > 0 {
+		logger.Info("mesh tests generated", slog.Int("count", len(mesh)))
+	}
+
 	scheduler := popagent.NewScheduler(logger, runners, publisher)
 	logger.Info("scheduler running", slog.Int("tests", len(tests)))
 	if err := scheduler.Run(ctx, tests); err != nil {

@@ -51,8 +51,10 @@ fmt: ## Run gofmt -s -w on all Go files (run before commit).
 lint: ## Run golangci-lint (must be installed locally).
 	golangci-lint run --timeout=5m
 
-run-controlplane: build ## Run ns-controlplane against a NETSITE_CONTROLPLANE_DB_URL.
+run-controlplane: build ## Run ns-controlplane against the local compose stack.
 	NETSITE_CONTROLPLANE_DB_URL="$${NETSITE_CONTROLPLANE_DB_URL:-postgres://netsite:netsite@localhost:5432/netsite?sslmode=disable}" \
+	NETSITE_CONTROLPLANE_CH_URL="$${NETSITE_CONTROLPLANE_CH_URL:-clickhouse://netsite:netsite@localhost:9000/netsite}" \
+	NETSITE_CONTROLPLANE_NATS_URL="$${NETSITE_CONTROLPLANE_NATS_URL:-nats://localhost:4222}" \
 	NETSITE_CONTROLPLANE_HTTP_ADDR="$${NETSITE_CONTROLPLANE_HTTP_ADDR:-:8080}" \
 	NETSITE_OTEL_OTLP_ENDPOINT="$${NETSITE_OTEL_OTLP_ENDPOINT:-localhost:4317}" \
 	NETSITE_OTEL_INSECURE="$${NETSITE_OTEL_INSECURE:-true}" \

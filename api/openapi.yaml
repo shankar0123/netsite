@@ -19,7 +19,7 @@
 openapi: "3.1.0"
 info:
   title: NetSite Control Plane API
-  version: "0.0.4"
+  version: "0.0.6"
   description: |
     The NetSite control plane HTTP surface. All endpoints are under
     `/v1/`; breaking changes ship as `/v2/` and run side-by-side with
@@ -48,6 +48,10 @@ tags:
     description: Liveness and backend reachability.
   - name: auth
     description: Cookie-based authentication.
+  - name: tests
+    description: Synthetic-monitoring test catalog.
+  - name: pops
+    description: POP (point-of-presence) roster.
 
 paths:
   /v1/health:
@@ -128,6 +132,138 @@ paths:
         "401":
           description: unauthorized
 
+  /v1/tests:
+    get:
+      tags: [tests]
+      summary: List tests in the caller's tenant
+      description: |
+        RBAC: tests:read (viewer+).
+      responses:
+        "200":
+          description: tests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Test" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+    post:
+      tags: [tests]
+      summary: Create a new test in the caller's tenant
+      description: |
+        RBAC: tests:write (operator+).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TestRequest" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Test" }
+        "400": { description: invalid body }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+
+  /v1/tests/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [tests]
+      summary: Get one test by id
+      responses:
+        "200":
+          description: test
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Test" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: not found }
+    delete:
+      tags: [tests]
+      summary: Delete one test by id
+      description: |
+        RBAC: tests:write (operator+).
+      responses:
+        "204": { description: deleted }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: not found }
+
+  /v1/pops:
+    get:
+      tags: [pops]
+      summary: List POPs in the caller's tenant
+      description: |
+        RBAC: pops:read (viewer+).
+      responses:
+        "200":
+          description: pops
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/POP" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+    post:
+      tags: [pops]
+      summary: Register a new POP
+      description: |
+        Operator pre-registers each POP. RBAC: pops:write (operator+).
+        The id field is operator-chosen because it is referenced by
+        ns-pop YAML configs and Prometheus scrape targets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/POPRequest" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/POP" }
+        "400": { description: invalid body }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+
+  /v1/pops/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [pops]
+      summary: Get one POP by id
+      responses:
+        "200":
+          description: pop
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/POP" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: not found }
+    delete:
+      tags: [pops]
+      summary: Delete one POP by id
+      description: |
+        RBAC: pops:write (operator+).
+      responses:
+        "204": { description: deleted }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+        "404": { description: not found }
+
 components:
   schemas:
     Health:
@@ -199,6 +335,73 @@ components:
           type: string
           enum: [admin, operator, viewer]
           description: Coarse-grained role used by the RBAC layer.
+
+    TestRequest:
+      type: object
+      required: [kind, target]
+      properties:
+        kind:
+          type: string
+          enum: [dns, http, tls]
+        target:
+          type: string
+          description: |
+            Protocol-dependent. dns: hostname; http: URL; tls: host:port.
+        interval_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          default: 30000
+        timeout_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          default: 5000
+        enabled:
+          type: boolean
+          default: true
+        config:
+          type: object
+          description: Protocol-specific config bag (HTTP method, etc.).
+          additionalProperties: true
+
+    Test:
+      allOf:
+        - $ref: "#/components/schemas/TestRequest"
+        - type: object
+          required: [id, tenant_id, created_at]
+          properties:
+            id: { type: string }
+            tenant_id: { type: string }
+            created_at: { type: string, format: date-time }
+
+    POPRequest:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          pattern: "^pop-"
+          description: Operator-chosen identifier. Must start with `pop-`.
+          example: pop-lhr-01
+        name: { type: string }
+        description: { type: string }
+        region: { type: string }
+        health_url:
+          type: string
+          format: uri
+          description: |
+            URL of the POP's health endpoint, used by mesh canaries on
+            other POPs.
+
+    POP:
+      allOf:
+        - $ref: "#/components/schemas/POPRequest"
+        - type: object
+          required: [tenant_id, created_at]
+          properties:
+            tenant_id: { type: string }
+            created_at: { type: string, format: date-time }
 
   securitySchemes:
     sessionCookie:
