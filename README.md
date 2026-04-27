@@ -1,0 +1,43 @@
+# NetSite
+
+Self-hosted network observability — synthetic monitoring, BGP route analysis,
+flow analytics, PCAP analytics — with a cross-domain reasoning layer
+(causal correlation, natural-language incident query, what-changed,
+outage attribution).
+
+**Status:** v0.0.0, pre-alpha. Phase 0 (foundation) in progress.
+**License:** Business Source License 1.1, Change Date 2125-01-01,
+Change License Apache 2.0. See [`LICENSE`](./LICENSE).
+
+This repository is single-owner. External code contributions to the core
+repo are not accepted (catalog repos under
+[`shankar0123/netsite-providers`](https://github.com/shankar0123/netsite-providers),
+[`shankar0123/netsite-bgp-catalog`](https://github.com/shankar0123/netsite-bgp-catalog),
+and `shankar0123/netsite-presets` accept community PRs since their content
+is mostly facts).
+
+## Build
+
+Requires Go 1.22+.
+
+```sh
+make build
+./ns version
+```
+
+`make test` runs the test suite with the race detector. `make lint` runs
+`golangci-lint`. `make vet` runs `go vet`.
+
+## Status of components
+
+The CLI (`ns`) currently exposes only `ns version`. Phase 0 work is
+sequenced in the project tracker; subsequent commits will land control
+plane (`ns-controlplane`), POP agent (`ns-pop`), canary protocols, the
+SLO engine, anomaly detection, and the netql DSL.
+
+## Security
+
+Use GitHub's private vulnerability reporting at
+<https://github.com/shankar0123/netsite/security/advisories/new>. See
+[`SECURITY.md`](./SECURITY.md). Do not file public issues for security
+reports.

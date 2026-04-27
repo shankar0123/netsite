@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go (build, test, vet, license header)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: make build
+
+      - name: go test (race + coverage)
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: coverage report
+        run: go tool cover -func=coverage.out | tee coverage.txt
+
+      - name: upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage.out
+            coverage.txt
+          retention-days: 30
+
+      - name: license-header check (BSL on every .go file)
+        run: |
+          missing=0
+          while IFS= read -r f; do
+            if ! head -n 20 "$f" | grep -q "Business Source License"; then
+              echo "::error file=$f::missing BSL header"
+              missing=1
+            fi
+          done < <(find . -type f -name '*.go' -not -path './vendor/*')
+          exit $missing
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m

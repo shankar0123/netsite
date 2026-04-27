@@ -1,0 +1,45 @@
+# Compiled binaries
+/ns
+/ns-*
+/bin/
+*.exe
+*.test
+*.out
+
+# Coverage
+coverage.out
+coverage.html
+*.coverage
+
+# Go module / build cache (kept out of repo)
+/vendor/
+
+# Frontend
+node_modules/
+.pnpm-store/
+web/dist/
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*~
+.history/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Build / temp
+/tmp/
+/.cache/
+
+# Logs
+*.log
