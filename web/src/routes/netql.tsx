@@ -1,27 +1,29 @@
 // Copyright 2026 Shankar Reddy. BSL 1.1. See LICENSE.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { execute, translate, type NetQLExecuteResponse } from "../api/netql";
 import { BarChart } from "../components/Chart";
 
-// What: the /netql route. Textarea-based editor (Monaco arrives
-// in v0.0.18+ alongside autocomplete wiring), "Translate" button
+// What: the /netql route. Textarea-based editor, "Translate" button
 // reveals SQL/PromQL, "Run" button executes and renders a chart
-// + a results table.
+// plus a results table. The query is URL-encoded as `?q=...` so an
+// operator can save it as a Workspace view and reload to the same
+// state — that's the v0.0.24 contract that closes the Phase 0
+// exit-gate "Workspace URL persists" criterion.
 //
 // How: two TanStack Query mutations would be over-engineering for
 // a single-button-click flow; we use plain async / useState and
-// catch errors into a state field. The textarea is intentionally
-// pre-populated with the canonical seven-word example from the
-// algorithm doc so first-time visitors have something to click
-// "Run" on.
+// catch errors into a state field. URL state is read on mount via
+// useSearch and written on Run / Show SQL via useNavigate so the
+// query persists in the URL bar (and therefore in any pinned
+// Workspace view) without re-rendering on every keystroke.
 //
-// Why a textarea rather than Monaco for v0.0.17: Monaco is ~3 MB
-// gzipped, dwarfs the rest of the bundle, and forces us to
-// resolve a worker-loading story before the page can be served.
-// Save it for v0.0.18 when we wire autocomplete to /v1/netql/...
-// (the autocomplete API call is the thing that actually needs
-// Monaco's editor.registerCompletionItemProvider hook).
+// Why mount-and-action sync rather than every-keystroke sync: typing
+// pushes URL history, breaks browser-back, and prevents the URL
+// from carrying the meaningful "this is the query I ran" snapshot.
+// Sync-on-action gives the operator a clean stable URL after every
+// successful Run that's safe to share, save, or bookmark.
 
 const EXAMPLE_QUERIES = [
   "latency_p95 by pop where target = 'api.example.com' over 24h",
@@ -30,12 +32,43 @@ const EXAMPLE_QUERIES = [
   "request_rate by route over 5m",
 ];
 
+// netqlSearch is the typed shape of /netql's URL search params.
+// We deliberately keep it permissive: TanStack Router's strict-
+// false useSearch returns Record<string, unknown> and we cast
+// here. A future migration to validateSearch on the route
+// definition would tighten this without changing call sites.
+type NetqlSearch = { q?: string };
+
 export function NetQLPage() {
-  const [query, setQuery] = useState(EXAMPLE_QUERIES[0]);
+  const search = useSearch({ strict: false }) as NetqlSearch;
+  const navigate = useNavigate();
+  const initial = typeof search.q === "string" && search.q ? search.q : EXAMPLE_QUERIES[0];
+  const [query, setQuery] = useState(initial);
   const [result, setResult] = useState<NetQLExecuteResponse | null>(null);
   const [translation, setTranslation] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"translate" | "run" | null>(null);
+
+  // Sync state ← URL on back/forward navigation. Without this, a
+  // user clicking the browser's back button after opening a saved
+  // workspace would see the URL change but the editor stay stale.
+  useEffect(() => {
+    const next = typeof search.q === "string" ? search.q : "";
+    if (next && next !== query) {
+      setQuery(next);
+    }
+    // We intentionally only depend on the URL's q. Including `query`
+    // would loop (state change → effect → state change).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.q]);
+
+  // syncURL pushes the current query into the URL search params.
+  // replace=true so the action button doesn't add a stack entry per
+  // click — only the meaningful state change (a successful Run)
+  // updates the URL in place.
+  function syncURL(q: string) {
+    navigate({ search: { q } as NetqlSearch, replace: true });
+  }
 
   async function onTranslate() {
     setBusy("translate");
@@ -44,6 +77,7 @@ export function NetQLPage() {
       const tr = await translate(query);
       setTranslation(tr.backend === "clickhouse" ? tr.sql ?? "" : tr.promql ?? "");
       setResult(null);
+      syncURL(query);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -58,6 +92,7 @@ export function NetQLPage() {
       const out = await execute(query);
       setResult(out);
       setTranslation(out.backend === "clickhouse" ? out.sql ?? "" : out.promql ?? "");
+      syncURL(query);
     } catch (e) {
       setError(String(e));
     } finally {
