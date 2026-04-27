@@ -34,6 +34,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	tcclickhouse "github.com/testcontainers/testcontainers-go/modules/clickhouse"
 )
 
@@ -131,20 +132,46 @@ func TestApply_SecondApply_IsNoOp(t *testing.T) {
 		t.Fatalf("Apply first: %v", err)
 	}
 
-	// Second apply.
+	// Capture the row count after the first apply. Each schema file
+	// produces exactly one row (one INSERT into _ch_schema_applied per
+	// applied file). The expected count therefore equals the number of
+	// .sql files currently embedded in Schema(), which grows over time
+	// as the project accrues schema changes — pinning a literal value
+	// here would break every time we add a new schema file.
+	countBefore := readTrackingCount(t, ctx, conn)
+
+	// Second apply must be a no-op: nothing inserted, count unchanged.
 	if err := Apply(ctx, conn, Schema()); err != nil {
 		t.Fatalf("Apply second: %v", err)
 	}
 
-	// Tracking shows a single row per name when read with FINAL.
+	countAfter := readTrackingCount(t, ctx, conn)
+	if countAfter != countBefore {
+		t.Errorf("_ch_schema_applied row count changed across the second apply: before=%d after=%d", countBefore, countAfter)
+	}
+
+	// Sanity: the count must equal the number of files in Schema().
+	files, err := listSQLFiles(Schema())
+	if err != nil {
+		t.Fatalf("list files: %v", err)
+	}
+	if int(countAfter) != len(files) {
+		t.Errorf("_ch_schema_applied count = %d; want %d (one row per embedded schema file)", countAfter, len(files))
+	}
+}
+
+// readTrackingCount returns the current FINAL-deduplicated row count of
+// _ch_schema_applied. Use FINAL because ReplacingMergeTree merges in
+// the background; without FINAL a row inserted seconds ago can still
+// appear unmerged.
+func readTrackingCount(t *testing.T, ctx context.Context, conn driver.Conn) uint64 {
+	t.Helper()
 	row := conn.QueryRow(ctx, `SELECT count(*) FROM _ch_schema_applied FINAL`)
 	var n uint64
 	if err := row.Scan(&n); err != nil {
 		t.Fatalf("count tracking: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("_ch_schema_applied count after double apply = %d; want 1", n)
-	}
+	return n
 }
 
 // TestApply_NilSrc asserts the applier refuses a nil src with a clear
