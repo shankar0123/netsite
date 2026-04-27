@@ -44,6 +44,7 @@ import (
 	"github.com/shankar0123/netsite/pkg/auth"
 	"github.com/shankar0123/netsite/pkg/canary/ingest"
 	"github.com/shankar0123/netsite/pkg/integrations/otel"
+	"github.com/shankar0123/netsite/pkg/slo"
 	chstore "github.com/shankar0123/netsite/pkg/store/clickhouse"
 	natsstore "github.com/shankar0123/netsite/pkg/store/nats"
 	pgstore "github.com/shankar0123/netsite/pkg/store/postgres"
@@ -166,13 +167,25 @@ func run(_ []string) int {
 
 	authSvc := auth.NewService(auth.NewRepo(pool), auth.Config{})
 
+	// SLO catalog store + evaluator goroutine. Evaluator reads SLOs
+	// from Postgres and the canary SLI from ClickHouse on each tick.
+	sloStore := slo.NewStore(pool)
+	sloEval := slo.NewEvaluator(logger, sloStore, slo.ClickHouseSLISource{Conn: chConn}, nil)
+	go func() {
+		if err := sloEval.Run(ctx); err != nil {
+			logger.Error("slo evaluator stopped with error", slog.Any("err", err))
+		}
+	}()
+
 	addr := envOr("NETSITE_CONTROLPLANE_HTTP_ADDR", ":8080")
 	srv, err := api.New(api.Config{
-		Addr:    addr,
-		Pool:    pool,
-		Logger:  logger,
-		PromReg: promReg,
-		Auth:    authSvc,
+		Addr:     addr,
+		Pool:     pool,
+		Logger:   logger,
+		PromReg:  promReg,
+		Auth:     authSvc,
+		CH:       chConn,
+		SLOStore: sloStore,
 	})
 	if err != nil {
 		logger.Error("api server build failed", slog.Any("err", err))

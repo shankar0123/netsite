@@ -19,7 +19,7 @@
 openapi: "3.1.0"
 info:
   title: NetSite Control Plane API
-  version: "0.0.6"
+  version: "0.0.7"
   description: |
     The NetSite control plane HTTP surface. All endpoints are under
     `/v1/`; breaking changes ship as `/v2/` and run side-by-side with
@@ -52,6 +52,8 @@ tags:
     description: Synthetic-monitoring test catalog.
   - name: pops
     description: POP (point-of-presence) roster.
+  - name: slos
+    description: Service-level objectives + multi-window multi-burn-rate evaluation.
 
 paths:
   /v1/health:
@@ -264,6 +266,93 @@ paths:
         "403": { description: forbidden }
         "404": { description: not found }
 
+  /v1/tests/{id}/results:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+      - name: limit
+        in: query
+        schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+    get:
+      tags: [tests]
+      summary: List the most recent canary results for a test
+      description: |
+        Returns up to `limit` rows ordered by observed_at DESC. RBAC:
+        tests:read (viewer+). The data lives in ClickHouse; the
+        endpoint is the operator's window into the loop without
+        requiring direct ClickHouse access.
+      responses:
+        "200":
+          description: results
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CanaryResult" }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+
+  /v1/slos:
+    get:
+      tags: [slos]
+      summary: List SLOs in the caller's tenant
+      description: |
+        RBAC: slos:read (viewer+).
+      responses:
+        "200":
+          description: slos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SLO" }
+    post:
+      tags: [slos]
+      summary: Create a new SLO
+      description: |
+        RBAC: slos:write (operator+). Inputs are validated against the
+        same rules as the evaluator (objective_pct in (0,1), positive
+        thresholds, supported sli_kind).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SLORequest" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SLO" }
+        "400": { description: invalid body }
+        "401": { description: unauthorized }
+        "403": { description: forbidden }
+
+  /v1/slos/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [slos]
+      responses:
+        "200":
+          description: slo
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SLO" }
+        "404": { description: not found }
+    delete:
+      tags: [slos]
+      description: |
+        RBAC: slos:write.
+      responses:
+        "204": { description: deleted }
+        "404": { description: not found }
+
 components:
   schemas:
     Health:
@@ -400,6 +489,77 @@ components:
         - type: object
           required: [tenant_id, created_at]
           properties:
+            tenant_id: { type: string }
+            created_at: { type: string, format: date-time }
+
+    CanaryResult:
+      type: object
+      required: [test_id, pop_id, observed_at]
+      properties:
+        test_id:    { type: string }
+        pop_id:     { type: string }
+        observed_at:{ type: string, format: date-time }
+        latency_ms: { type: number, format: float }
+        dns_ms:     { type: number, format: float }
+        connect_ms: { type: number, format: float }
+        tls_ms:     { type: number, format: float }
+        ttfb_ms:    { type: number, format: float }
+        status_code:{ type: integer, minimum: 0, maximum: 65535 }
+        error_kind: { type: string }
+
+    SLORequest:
+      type: object
+      required: [name, sli_kind, objective_pct, window_seconds]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        sli_kind:
+          type: string
+          enum: [canary_success]
+        sli_filter:
+          type: object
+          description: |
+            Optional filter narrowing which canary_results rows count.
+            Recognised keys: test_id, pop_id.
+          additionalProperties: true
+        objective_pct:
+          type: number
+          format: double
+          exclusiveMinimum: 0
+          exclusiveMaximum: 1
+          example: 0.999
+        window_seconds:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 2592000
+        fast_burn_threshold:
+          type: number
+          format: double
+          minimum: 0
+          default: 14.4
+        slow_burn_threshold:
+          type: number
+          format: double
+          minimum: 0
+          default: 6.0
+        notifier_url:
+          type: string
+          format: uri
+          description: |
+            Optional webhook URL the evaluator POSTs BurnEvent JSON
+            to. Empty string means log-only.
+        enabled:
+          type: boolean
+          default: true
+
+    SLO:
+      allOf:
+        - $ref: "#/components/schemas/SLORequest"
+        - type: object
+          required: [id, tenant_id, created_at]
+          properties:
+            id: { type: string }
             tenant_id: { type: string }
             created_at: { type: string, format: date-time }
 

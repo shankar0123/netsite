@@ -20,10 +20,12 @@ import (
 	"log/slog"
 	"testing"
 
+	chdriver "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/shankar0123/netsite/pkg/auth"
+	"github.com/shankar0123/netsite/pkg/slo"
 )
 
 // stubAuth is a minimal authService implementation for tests that
@@ -36,6 +38,11 @@ func (stubAuth) Login(context.Context, string, string, string) (auth.Session, er
 func (stubAuth) Logout(context.Context, string) error              { return nil }
 func (stubAuth) Whoami(context.Context, string) (auth.User, error) { return auth.User{}, nil }
 
+// stubCH satisfies driver.Conn for construction-only tests by
+// embedding the interface (zero value). Method calls panic, but the
+// tests below never invoke any.
+type stubCH struct{ chdriver.Conn }
+
 // TestNew_Validations asserts every required field is checked, with
 // distinct error messages so log readers can find the missing one.
 func TestNew_Validations(t *testing.T) {
@@ -43,17 +50,21 @@ func TestNew_Validations(t *testing.T) {
 	pool := &pgxpool.Pool{}
 	reg := prometheus.NewRegistry()
 	stub := stubAuth{}
+	ch := stubCH{}
+	store := slo.NewStore(nil)
 
 	cases := []struct {
 		name    string
 		cfg     Config
 		wantSub string
 	}{
-		{"empty Addr", Config{Pool: pool, Logger: logger, PromReg: reg, Auth: stub}, "Addr"},
-		{"nil Pool", Config{Addr: ":0", Logger: logger, PromReg: reg, Auth: stub}, "Pool"},
-		{"nil Logger", Config{Addr: ":0", Pool: pool, PromReg: reg, Auth: stub}, "Logger"},
-		{"nil PromReg", Config{Addr: ":0", Pool: pool, Logger: logger, Auth: stub}, "PromReg"},
-		{"nil Auth", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg}, "Auth"},
+		{"empty Addr", Config{Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store}, "Addr"},
+		{"nil Pool", Config{Addr: ":0", Logger: logger, PromReg: reg, Auth: stub, CH: ch, SLOStore: store}, "Pool"},
+		{"nil Logger", Config{Addr: ":0", Pool: pool, PromReg: reg, Auth: stub, CH: ch, SLOStore: store}, "Logger"},
+		{"nil PromReg", Config{Addr: ":0", Pool: pool, Logger: logger, Auth: stub, CH: ch, SLOStore: store}, "PromReg"},
+		{"nil Auth", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, CH: ch, SLOStore: store}, "Auth"},
+		{"nil CH", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, SLOStore: store}, "CH"},
+		{"nil SLOStore", Config{Addr: ":0", Pool: pool, Logger: logger, PromReg: reg, Auth: stub, CH: ch}, "SLOStore"},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -76,11 +87,13 @@ func TestNew_Validations(t *testing.T) {
 // the expected Addr.
 func TestNew_OK(t *testing.T) {
 	cfg := Config{
-		Addr:    "127.0.0.1:0",
-		Pool:    &pgxpool.Pool{},
-		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
-		PromReg: prometheus.NewRegistry(),
-		Auth:    stubAuth{},
+		Addr:     "127.0.0.1:0",
+		Pool:     &pgxpool.Pool{},
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		PromReg:  prometheus.NewRegistry(),
+		Auth:     stubAuth{},
+		CH:       stubCH{},
+		SLOStore: slo.NewStore(nil),
 	}
 	s, err := New(cfg)
 	if err != nil {

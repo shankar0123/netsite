@@ -36,10 +36,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/shankar0123/netsite/pkg/api/middleware"
+	"github.com/shankar0123/netsite/pkg/slo"
 	promstore "github.com/shankar0123/netsite/pkg/store/prometheus"
 )
 
@@ -62,6 +64,11 @@ type Config struct {
 	PromReg *prometheus.Registry
 	// Auth is the authentication service backing /v1/auth/*. Required.
 	Auth authService
+	// CH is the ClickHouse connection used by canary-result query
+	// endpoints (/v1/tests/{id}/results). Required.
+	CH driver.Conn
+	// SLOStore backs the /v1/slos handlers. Required.
+	SLOStore *slo.Store
 }
 
 // Server is an HTTP server bound to the NetSite control-plane API
@@ -96,6 +103,12 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Auth == nil {
 		return nil, errors.New("api: nil Auth")
 	}
+	if cfg.CH == nil {
+		return nil, errors.New("api: nil CH")
+	}
+	if cfg.SLOStore == nil {
+		return nil, errors.New("api: nil SLOStore")
+	}
 
 	mux := http.NewServeMux()
 
@@ -122,6 +135,16 @@ func New(cfg Config) (*Server, error) {
 	mux.Handle("POST /v1/pops", middleware.Authorize("pops:write", createPopHandler(cfg.Pool)))
 	mux.Handle("GET /v1/pops/{id}", middleware.Authorize("pops:read", getPopHandler(cfg.Pool)))
 	mux.Handle("DELETE /v1/pops/{id}", middleware.Authorize("pops:write", deletePopHandler(cfg.Pool)))
+
+	// Canary results query. tests:read suffices because these are
+	// reads of operational telemetry, not catalog mutations.
+	mux.Handle("GET /v1/tests/{id}/results", middleware.Authorize("tests:read", listTestResultsHandler(cfg.CH)))
+
+	// SLO catalog.
+	mux.Handle("GET /v1/slos", middleware.Authorize("slos:read", listSLOsHandler(cfg.SLOStore)))
+	mux.Handle("POST /v1/slos", middleware.Authorize("slos:write", createSLOHandler(cfg.SLOStore)))
+	mux.Handle("GET /v1/slos/{id}", middleware.Authorize("slos:read", getSLOHandler(cfg.SLOStore)))
+	mux.Handle("DELETE /v1/slos/{id}", middleware.Authorize("slos:write", deleteSLOHandler(cfg.SLOStore)))
 
 	// Prometheus metrics. Public on the dev stack; in production this
 	// is reachable only inside the cluster network.
