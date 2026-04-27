@@ -34,14 +34,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/testcontainers/testcontainers-go"
 	tcclickhouse "github.com/testcontainers/testcontainers-go/modules/clickhouse"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // startClickHouse returns a running ClickHouse 24 container and a DSN
 // that reaches it. Cleanup is registered via t.Cleanup so individual
 // test cases need not handle teardown.
+//
+// We rely on the testcontainers-go clickhouse module's default wait
+// strategy (HTTP 200 on the 8123 port). An earlier override using
+// `wait.ForLog("Ready for connections")` shipped in v0.0.3 and timed
+// out under CI because the alpine image's log wording differs; that
+// regression is fixed here by deleting the override.
 func startClickHouse(t *testing.T) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -52,9 +56,6 @@ func startClickHouse(t *testing.T) string {
 		tcclickhouse.WithUsername("netsite"),
 		tcclickhouse.WithPassword("netsite"),
 		tcclickhouse.WithDatabase("netsite_test"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("Ready for connections").WithStartupTimeout(60*time.Second),
-		),
 	)
 	if err != nil {
 		t.Fatalf("start clickhouse: %v", err)

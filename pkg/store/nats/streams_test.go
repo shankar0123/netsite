@@ -32,21 +32,23 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"github.com/testcontainers/testcontainers-go"
 	tcnats "github.com/testcontainers/testcontainers-go/modules/nats"
 )
 
 // startNATS returns a running JetStream-enabled NATS server and the
 // URL that reaches it. Cleanup is registered with t.Cleanup.
+//
+// JetStream is enabled out of the box: the testcontainers-go nats
+// module sets the container cmd to `-DV -js` by default. Passing
+// tcnats.WithArgument("jetstream", "") would append a malformed
+// `--jetstream ""` after the default args and the server would exit
+// with code 1 — that bug landed in the v0.0.3 push and is fixed here.
 func startNATS(t *testing.T) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	container, err := tcnats.Run(ctx,
-		"nats:2.10-alpine",
-		tcnats.WithArgument("jetstream", ""),
-	)
+	container, err := tcnats.Run(ctx, "nats:2.10-alpine")
 	if err != nil {
 		t.Fatalf("start nats: %v", err)
 	}
@@ -60,7 +62,6 @@ func startNATS(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("nats url: %v", err)
 	}
-	_ = testcontainers.ContainerCustomizer(nil) // tolerate the import
 	return url
 }
 
