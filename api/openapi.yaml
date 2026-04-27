@@ -496,15 +496,15 @@ components:
       type: object
       required: [test_id, pop_id, observed_at]
       properties:
-        test_id:    { type: string }
-        pop_id:     { type: string }
-        observed_at:{ type: string, format: date-time }
+        test_id: { type: string }
+        pop_id: { type: string }
+        observed_at: { type: string, format: date-time }
         latency_ms: { type: number, format: float }
-        dns_ms:     { type: number, format: float }
+        dns_ms: { type: number, format: float }
         connect_ms: { type: number, format: float }
-        tls_ms:     { type: number, format: float }
-        ttfb_ms:    { type: number, format: float }
-        status_code:{ type: integer, minimum: 0, maximum: 65535 }
+        tls_ms: { type: number, format: float }
+        ttfb_ms: { type: number, format: float }
+        status_code: { type: integer, minimum: 0, maximum: 65535 }
         error_kind: { type: string }
 
     SLORequest:
